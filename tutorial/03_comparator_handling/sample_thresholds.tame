@@ -1,0 +1,19 @@
+<META>
+[INFO]
+DESCRIPTION = """<NUM> 처리와 harmonization 예제"""
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "HARMONIZE"
+
+[WORKS]
+DEFAULT = ["EDA"]
+</META>
+<DATA>
+[[ITEM]]검사항목명	[[RESULT::<NUM>]]보고값
+AST	<30
+AST	<20
+AST	22
+AST	18
+ALT	35
+</DATA>

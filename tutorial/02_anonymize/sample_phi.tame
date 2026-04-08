@@ -1,0 +1,14 @@
+<META>
+[INFO]
+DESCRIPTION = """병원ID 익명화와 이름 제거 예제"""
+NOTE = """예시 데이터는 합성자료입니다."""
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+</META>
+<DATA>
+[[HOSPITAL_ID]]병원ID	[[NAME]]이름	[[ID::STR]]등록번호	[[ITEM]]검사항목명	[[RESULT::<NUM>]]보고값
+HOSP_A	홍길동	P0001	AST	<30
+HOSP_A	김영희	P0002	ALT	25
+HOSP_B	이민수	P1001	AST	<25
+</DATA>

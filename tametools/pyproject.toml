@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tametools"
+version = "0.1.0"
+description = "Tag-first TAME tools scaffold"
+requires-python = ">=3.10"
+dependencies = [
+  "pandas",
+  "openpyxl",
+  "tomli",
+]
+
+[project.optional-dependencies]
+parquet = [
+  "pyarrow",
+]
+
+[project.scripts]
+tametools = "tametools.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

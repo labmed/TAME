@@ -1,0 +1,27 @@
+<META>
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[WORKS]
+RI = ["REFERENCE_INTERVAL"]
+
+[PIPELINES]
+DEFAULT = [
+  "sample --rows 1 --by-tag TESTNAME --seed 7",
+  "run RI",
+]
+EXPORT_SQL = [
+  "sample --rows 1 --by-tag TESTNAME --seed 7",
+  "export outputs/ri_sample.sql --format sql",
+]
+</META>
+<DATA>
+[[TESTNAME]]검사항목명	[[GENDER]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값	[[BY]]진료과
+AST	M	5	10	IM
+AST	F	15	12	IM
+AST	M	25	<30	GS
+AST	F	72	20	GS
+ALT	M	35	30	IM
+ALT	F	82	40	GS
+</DATA>
