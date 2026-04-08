@@ -4,7 +4,7 @@ TAME is a tag-first text format for laboratory tabular data, and `tametools` is 
 
 ## What This Repository Contains
 
-- `TAME_FORMAT_PROPOSAL.md`: format proposal for the TAME file structure
+- `TAME_FORMAT_SPECIFICATION.md`: formal file-format specification for TAME
 - `tametools/`: installable Python package and CLI
 - `tutorial/`: runnable examples for validation, anonymization, merge, export, plugins, embedded functions, and command pipelines
 - `docs/`: program usage and implementation documentation
@@ -53,6 +53,13 @@ PYTHONPATH=tametools/src:. python3 -m tametools info tutorial/01_tagged_eda/samp
 
 ## Quick Start
 
+Show CLI help:
+
+```bash
+PYTHONPATH=tametools/src:. python3 -m tametools --help
+PYTHONPATH=tametools/src:. python3 -m tametools help run
+```
+
 Inspect a tagged dataset:
 
 ```bash
@@ -93,11 +100,9 @@ Start here:
 
 ## Documentation
 
-- [TAME_FORMAT_PROPOSAL.md](TAME_FORMAT_PROPOSAL.md)
+- [TAME_FORMAT_SPECIFICATION.md](TAME_FORMAT_SPECIFICATION.md)
 - [docs/TAME_SPEC_AND_TAMETOOLS_REVIEW.md](docs/TAME_SPEC_AND_TAMETOOLS_REVIEW.md)
 
 ## Data Safety Note
 
 - The tutorial datasets are synthetic data.
-
-
