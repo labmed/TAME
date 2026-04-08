@@ -28,131 +28,322 @@ from .transforms import (
 )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="tametools")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+class TametoolsHelpFormatter(argparse.RawTextHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
+    pass
 
-    for name in ("info", "columns", "states", "validate", "describe", "ri-plan", "ri-summary"):
-        sub = subparsers.add_parser(name)
-        sub.add_argument("path")
-        sub.add_argument("--meta")
 
-    eda_parser = subparsers.add_parser("eda")
-    eda_parser.add_argument("path")
-    eda_parser.add_argument("--meta")
-    eda_parser.add_argument("--comparator-policy", choices=["DELETE", "VALUE", "KEEP", "HARMONIZE"], default=None)
+def build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.ArgumentParser]]:
+    parser = argparse.ArgumentParser(
+        prog="tametools",
+        description=(
+            "Read, validate, transform, and analyze TAME or XLSX datasets.\n\n"
+            "Use `tametools help COMMAND` or `tametools COMMAND --help` for command-specific help."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tametools info sample.tame\n"
+            "  tametools run sample.tame DEFAULT --output validated.tame\n"
+            "  tametools help run-pipeline"
+        ),
+        formatter_class=TametoolsHelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    command_parsers: dict[str, argparse.ArgumentParser] = {}
 
-    run_parser = subparsers.add_parser("run")
-    run_parser.add_argument("path")
-    run_parser.add_argument("--meta")
-    run_parser.add_argument("work", nargs="?", default="DEFAULT")
-    run_parser.add_argument("--output")
-    run_parser.add_argument("--allow-functions", action="store_true")
+    def add_command(name: str, *, help_text: str, description: str) -> argparse.ArgumentParser:
+        sub = subparsers.add_parser(
+            name,
+            help=help_text,
+            description=description,
+            formatter_class=TametoolsHelpFormatter,
+        )
+        command_parsers[name] = sub
+        return sub
 
-    pipelines_parser = subparsers.add_parser("pipelines")
-    pipelines_parser.add_argument("path")
-    pipelines_parser.add_argument("--meta")
+    help_parser = add_command(
+        "help",
+        help_text="Show top-level help or help for a specific command.",
+        description="Show `tametools` help text or the detailed help for a single command.",
+    )
+    help_parser.add_argument("topic", nargs="?", help="Command name to describe, for example `run` or `export`.")
 
-    run_pipeline_parser = subparsers.add_parser("run-pipeline")
-    run_pipeline_parser.add_argument("path")
-    run_pipeline_parser.add_argument("--meta")
-    run_pipeline_parser.add_argument("pipeline", nargs="?", default="DEFAULT")
-    run_pipeline_parser.add_argument("--output")
-    run_pipeline_parser.add_argument("--allow-functions", action="store_true")
+    info_parser = add_command(
+        "info",
+        help_text="Show dataset-level metadata summary.",
+        description="Print source path, row count, column count, available sections, works, and command pipelines.",
+    )
+    _add_path_arguments(info_parser)
 
-    plugins_parser = subparsers.add_parser("plugins")
-    plugins_parser.add_argument("path", nargs="?")
-    plugins_parser.add_argument("--meta")
+    columns_parser = add_command(
+        "columns",
+        help_text="List columns and resolved tags.",
+        description="Print the resolved column table including original header, display name, and effective tags.",
+    )
+    _add_path_arguments(columns_parser)
 
-    run_plugin_parser = subparsers.add_parser("run-plugin")
-    run_plugin_parser.add_argument("path")
-    run_plugin_parser.add_argument("--meta")
-    run_plugin_parser.add_argument("plugin")
-    run_plugin_parser.add_argument("--output")
+    states_parser = add_command(
+        "states",
+        help_text="Show cell-state matrix.",
+        description="Print per-cell logical states such as ABSENT, NULL, EMPTY, WS, and VALUE.",
+    )
+    _add_path_arguments(states_parser)
 
-    anonymize_parser = subparsers.add_parser("anonymize")
-    anonymize_parser.add_argument("path")
-    anonymize_parser.add_argument("--meta")
-    anonymize_parser.add_argument("--output")
-    anonymize_parser.add_argument("--hash-column", action="append", default=[])
-    anonymize_parser.add_argument("--drop-column", action="append", default=[])
-    anonymize_parser.add_argument("--hash-tag", action="append", default=["ID", "HOSPITAL_ID"])
-    anonymize_parser.add_argument("--drop-tag", action="append", default=["NAME"])
-    anonymize_parser.add_argument("--salt", default="")
-    anonymize_parser.add_argument("--mapping-output-dir")
+    validate_parser = add_command(
+        "validate",
+        help_text="Validate values against tags and settings.",
+        description="Validate a dataset using its effective tags and report the first validation issues.",
+    )
+    _add_path_arguments(validate_parser)
 
-    sample_parser = subparsers.add_parser("sample")
-    sample_parser.add_argument("path")
-    sample_parser.add_argument("--meta")
-    sample_parser.add_argument("--output")
+    describe_parser = add_command(
+        "describe",
+        help_text="Describe columns and inferred data kinds.",
+        description="Print per-column descriptive statistics based on resolved tags and normalized values.",
+    )
+    _add_path_arguments(describe_parser)
+
+    ri_plan_parser = add_command(
+        "ri-plan",
+        help_text="Show how reference-interval grouping will resolve.",
+        description="Print the result, age, gender, and grouping columns that would be used for reference-interval workflows.",
+    )
+    _add_path_arguments(ri_plan_parser)
+
+    ri_summary_parser = add_command(
+        "ri-summary",
+        help_text="Summarize numeric result columns for RI workflows.",
+        description="Print summary statistics for numeric or comparator-aware result columns.",
+    )
+    _add_path_arguments(ri_summary_parser)
+
+    eda_parser = add_command(
+        "eda",
+        help_text="Run exploratory analysis with comparator-aware summaries.",
+        description="Print summary tables, comparator profiles, policy impact, and harmonization preview for a dataset.",
+    )
+    _add_path_arguments(eda_parser)
+    eda_parser.add_argument(
+        "--comparator-policy",
+        choices=["DELETE", "VALUE", "KEEP", "HARMONIZE"],
+        default=None,
+        help="Override comparator handling policy for this analysis run.",
+    )
+
+    run_parser = add_command(
+        "run",
+        help_text="Execute a named META[WORKS] pipeline.",
+        description="Execute a step-based pipeline defined in META[WORKS] and print each operation output.",
+    )
+    _add_path_arguments(run_parser)
+    run_parser.add_argument("work", nargs="?", default="DEFAULT", help="Name of the work pipeline to execute.")
+    run_parser.add_argument("--output", help="Optional output dataset path (`.tame`, `.meta.tame`, `.data.tame`, `.xlsx`).")
+    run_parser.add_argument(
+        "--allow-functions",
+        action="store_true",
+        help="Allow embedded META[FUNCTIONS] execution for this run.",
+    )
+
+    pipelines_parser = add_command(
+        "pipelines",
+        help_text="List META[PIPELINES] command chains.",
+        description="Print the named command pipelines defined in META[PIPELINES].",
+    )
+    _add_path_arguments(pipelines_parser)
+
+    run_pipeline_parser = add_command(
+        "run-pipeline",
+        help_text="Execute a named META[PIPELINES] command chain.",
+        description="Execute a command-chain pipeline defined in META[PIPELINES] on the current dataset.",
+    )
+    _add_path_arguments(run_pipeline_parser)
+    run_pipeline_parser.add_argument("pipeline", nargs="?", default="DEFAULT", help="Name of the command pipeline to execute.")
+    run_pipeline_parser.add_argument("--output", help="Optional output dataset path after the final pipeline step.")
+    run_pipeline_parser.add_argument(
+        "--allow-functions",
+        action="store_true",
+        help="Allow embedded META[FUNCTIONS] execution for nested `run` steps.",
+    )
+
+    plugins_parser = add_command(
+        "plugins",
+        help_text="List available built-in and configured plugins.",
+        description="Print plugin names and descriptions. When a dataset is provided, META-driven external plugins are also loaded.",
+    )
+    plugins_parser.add_argument("path", nargs="?", help="Optional dataset path used to load META-configured plugins.")
+    plugins_parser.add_argument("--meta", help="Optional sidecar metadata path to apply while loading the dataset.")
+
+    run_plugin_parser = add_command(
+        "run-plugin",
+        help_text="Execute a single plugin by name.",
+        description="Run one plugin and optionally save the resulting dataset.",
+    )
+    _add_path_arguments(run_plugin_parser)
+    run_plugin_parser.add_argument("plugin", help="Plugin name, for example `REFERENCE_INTERVAL`.")
+    run_plugin_parser.add_argument("--output", help="Optional output dataset path.")
+
+    anonymize_parser = add_command(
+        "anonymize",
+        help_text="Hash identifier columns and drop sensitive columns.",
+        description="Anonymize a dataset using explicit columns or tag-driven defaults, and optionally save mapping tables.",
+    )
+    _add_path_arguments(anonymize_parser)
+    anonymize_parser.add_argument("--output", help="Optional output dataset path.")
+    anonymize_parser.add_argument("--hash-column", action="append", default=[], help="Column name to hash. Repeat as needed.")
+    anonymize_parser.add_argument("--drop-column", action="append", default=[], help="Column name to drop. Repeat as needed.")
+    anonymize_parser.add_argument(
+        "--hash-tag",
+        action="append",
+        default=["ID", "HOSPITAL_ID"],
+        help="Tag to hash when present. Repeat as needed.",
+    )
+    anonymize_parser.add_argument(
+        "--drop-tag",
+        action="append",
+        default=["NAME"],
+        help="Tag to drop when present. Repeat as needed.",
+    )
+    anonymize_parser.add_argument("--salt", default="", help="Optional salt string for stable pseudonymization.")
+    anonymize_parser.add_argument("--mapping-output-dir", help="Directory where column mapping CSV files will be written.")
+
+    sample_parser = add_command(
+        "sample",
+        help_text="Sample rows from a dataset.",
+        description="Create a smaller dataset by row count or fraction, optionally grouped by specific columns or tags.",
+    )
+    _add_path_arguments(sample_parser)
+    sample_parser.add_argument("--output", help="Optional output dataset path.")
     sample_mode = sample_parser.add_mutually_exclusive_group(required=True)
-    sample_mode.add_argument("--rows", type=int)
-    sample_mode.add_argument("--frac", type=float)
-    sample_parser.add_argument("--seed", type=int)
-    sample_parser.add_argument("--by-column", action="append", default=[])
-    sample_parser.add_argument("--by-tag", action="append", default=[])
-    sample_parser.add_argument("--replace", action="store_true")
+    sample_mode.add_argument("--rows", type=int, help="Number of rows to sample.")
+    sample_mode.add_argument("--frac", type=float, help="Fraction of rows to sample.")
+    sample_parser.add_argument("--seed", type=int, help="Random seed for reproducible sampling.")
+    sample_parser.add_argument("--by-column", action="append", default=[], help="Group by column name before sampling. Repeat as needed.")
+    sample_parser.add_argument("--by-tag", action="append", default=[], help="Group by tag before sampling. Repeat as needed.")
+    sample_parser.add_argument("--replace", action="store_true", help="Sample with replacement.")
 
-    split_parser = subparsers.add_parser("split-comparator")
-    split_parser.add_argument("path")
-    split_parser.add_argument("--meta")
-    split_parser.add_argument("--output")
-    split_parser.add_argument("--column", action="append", default=[])
-    split_parser.add_argument("--drop-original", action="store_true")
+    split_parser = add_command(
+        "split-comparator",
+        help_text="Split `<NUM>` values into comparator and numeric columns.",
+        description="Create `__cmp` and `__num` columns for comparator-aware numeric result values.",
+    )
+    _add_path_arguments(split_parser)
+    split_parser.add_argument("--output", help="Optional output dataset path.")
+    split_parser.add_argument("--column", action="append", default=[], help="Target column name. Repeat as needed.")
+    split_parser.add_argument("--drop-original", action="store_true", help="Drop the original comparator-aware column after splitting.")
 
-    harmonize_parser = subparsers.add_parser("harmonize-comparator")
-    harmonize_parser.add_argument("path")
-    harmonize_parser.add_argument("--meta")
-    harmonize_parser.add_argument("--output")
-    harmonize_parser.add_argument("--column", action="append", default=[])
-    harmonize_parser.add_argument("--exact-handling", choices=["between", "all"], default="between")
+    harmonize_parser = add_command(
+        "harmonize-comparator",
+        help_text="Unify mixed comparator thresholds.",
+        description="Rewrite comparator-aware numeric values to a unified threshold representation and print a preview table.",
+    )
+    _add_path_arguments(harmonize_parser)
+    harmonize_parser.add_argument("--output", help="Optional output dataset path.")
+    harmonize_parser.add_argument("--column", action="append", default=[], help="Target column name. Repeat as needed.")
+    harmonize_parser.add_argument(
+        "--exact-handling",
+        choices=["between", "all"],
+        default="between",
+        help="How to treat exact numeric values when applying harmonization.",
+    )
 
-    extract_images_parser = subparsers.add_parser("extract-images")
-    extract_images_parser.add_argument("path")
-    extract_images_parser.add_argument("--meta")
-    extract_images_parser.add_argument("--output-dir", required=True)
-    extract_images_parser.add_argument("--output")
-    extract_images_parser.add_argument("--column", action="append", default=[])
+    extract_images_parser = add_command(
+        "extract-images",
+        help_text="Extract IMAGE::B64 columns to files.",
+        description="Write embedded images to a directory and optionally save a PATH-based dataset.",
+    )
+    _add_path_arguments(extract_images_parser)
+    extract_images_parser.add_argument("--output-dir", required=True, help="Directory where extracted image files will be written.")
+    extract_images_parser.add_argument("--output", help="Optional output dataset path.")
+    extract_images_parser.add_argument("--column", action="append", default=[], help="Target column name. Repeat as needed.")
 
-    embed_images_parser = subparsers.add_parser("embed-images")
-    embed_images_parser.add_argument("path")
-    embed_images_parser.add_argument("--meta")
-    embed_images_parser.add_argument("--output", required=True)
-    embed_images_parser.add_argument("--base-dir")
-    embed_images_parser.add_argument("--column", action="append", default=[])
+    embed_images_parser = add_command(
+        "embed-images",
+        help_text="Embed IMAGE::PATH columns as data URLs.",
+        description="Read image files referenced by PATH-based image columns and write a B64-embedded dataset.",
+    )
+    _add_path_arguments(embed_images_parser)
+    embed_images_parser.add_argument("--output", required=True, help="Output dataset path.")
+    embed_images_parser.add_argument("--base-dir", help="Base directory used to resolve relative image paths.")
+    embed_images_parser.add_argument("--column", action="append", default=[], help="Target column name. Repeat as needed.")
 
-    merge_parser = subparsers.add_parser("merge")
-    merge_parser.add_argument("inputs", nargs="+")
-    merge_parser.add_argument("--output", required=True)
-    merge_parser.add_argument("--label", action="append", default=[])
-    merge_parser.add_argument("--num-conflict", choices=["strict", "promote", "split", "harmonize"], default="promote")
-    merge_parser.add_argument("--no-source-column", action="store_true")
+    merge_parser = add_command(
+        "merge",
+        help_text="Merge multiple datasets by tag semantics.",
+        description="Merge multiple datasets and resolve NUM vs <NUM> conflicts according to the chosen policy.",
+    )
+    merge_parser.add_argument("inputs", nargs="+", help="Input dataset paths to merge.")
+    merge_parser.add_argument("--output", required=True, help="Output dataset path.")
+    merge_parser.add_argument("--label", action="append", default=[], help="Optional source label. Repeat to match input order.")
+    merge_parser.add_argument(
+        "--num-conflict",
+        choices=["strict", "promote", "split", "harmonize"],
+        default="promote",
+        help="How to resolve numeric tag conflicts across inputs.",
+    )
+    merge_parser.add_argument("--no-source-column", action="store_true", help="Do not add a source_dataset provenance column.")
 
-    export_parser = subparsers.add_parser("export")
-    export_parser.add_argument("path")
-    export_parser.add_argument("--meta")
-    export_parser.add_argument("output")
-    export_parser.add_argument("--format", choices=available_export_formats(), default=None)
-    export_parser.add_argument("--bundle-data-format", choices=["csv", "tsv", "jsonl", "parquet", "feather"], default="csv")
-    export_parser.add_argument("--no-schema", action="store_true")
-    export_parser.add_argument("--no-job", action="store_true")
+    export_parser = add_command(
+        "export",
+        help_text="Export a dataset to flat files or an R bundle.",
+        description="Export to CSV, TSV, JSONL, SQL, Parquet, Feather, or an `r_bundle` directory.",
+    )
+    _add_path_arguments(export_parser)
+    export_parser.add_argument("output", help="Export target path or bundle directory.")
+    export_parser.add_argument("--format", choices=available_export_formats(), default=None, help="Explicit export format.")
+    export_parser.add_argument(
+        "--bundle-data-format",
+        choices=["csv", "tsv", "jsonl", "parquet", "feather"],
+        default="csv",
+        help="Data file format used inside an `r_bundle` export.",
+    )
+    export_parser.add_argument("--no-schema", action="store_true", help="Exclude SCHEMA from bundle-style exports.")
+    export_parser.add_argument("--no-job", action="store_true", help="Exclude JOB from bundle-style exports.")
 
-    split_tame_parser = subparsers.add_parser("split-tame")
-    split_tame_parser.add_argument("path")
-    split_tame_parser.add_argument("--meta-output")
-    split_tame_parser.add_argument("--data-output")
+    split_tame_parser = add_command(
+        "split-tame",
+        help_text="Split a dataset into `.meta.tame` and `.data.tame` sidecars.",
+        description="Write control sections and data section to separate sidecar files.",
+    )
+    split_tame_parser.add_argument("path", help="Input `.tame` dataset path.")
+    split_tame_parser.add_argument("--meta-output", help="Output path for `.meta.tame`.")
+    split_tame_parser.add_argument("--data-output", help="Output path for `.data.tame`.")
 
-    attach_meta_parser = subparsers.add_parser("attach-meta")
-    attach_meta_parser.add_argument("path")
-    attach_meta_parser.add_argument("meta")
-    attach_meta_parser.add_argument("--output", required=True)
+    attach_meta_parser = add_command(
+        "attach-meta",
+        help_text="Attach a `.meta.tame` sidecar to a dataset or spreadsheet.",
+        description="Load a data-bearing file together with explicit metadata and write the combined dataset.",
+    )
+    attach_meta_parser.add_argument("path", help="Input data-bearing file (`.tame`, `.data.tame`, `.xlsx`).")
+    attach_meta_parser.add_argument("meta", help="Input `.meta.tame` path.")
+    attach_meta_parser.add_argument("--output", required=True, help="Output dataset path.")
 
-    import_xlsx_parser = subparsers.add_parser("import-xlsx")
-    import_xlsx_parser.add_argument("template")
-    import_xlsx_parser.add_argument("xlsx")
-    import_xlsx_parser.add_argument("--output", required=True)
+    import_xlsx_parser = add_command(
+        "import-xlsx",
+        help_text="Replace the data rows of a template `.tame` with a new spreadsheet.",
+        description="Validate spreadsheet headers against a template TAME dataset and replace only the data table.",
+    )
+    import_xlsx_parser.add_argument("template", help="Template `.tame` path.")
+    import_xlsx_parser.add_argument("xlsx", help="Input spreadsheet path.")
+    import_xlsx_parser.add_argument("--output", required=True, help="Output `.tame` path.")
 
-    args = parser.parse_args()
+    return parser, command_parsers
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser, command_parsers = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "help":
+        if args.topic:
+            target = command_parsers.get(args.topic)
+            if target is None:
+                print(f"error: unknown command '{args.topic}'")
+                print()
+                parser.print_help()
+                return 1
+            target.print_help()
+            return 0
+        parser.print_help()
+        return 0
 
     if args.command == "info":
         dataset = _load_dataset(args.path, meta_path=args.meta)
@@ -526,3 +717,8 @@ def _print_table(name: str, table) -> None:
         print("(empty)")
         return
     print(table.to_string(index=False))
+
+
+def _add_path_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("path", help="Input dataset path (`.tame`, `.data.tame`, `.meta.tame`, `.xlsx`).")
+    parser.add_argument("--meta", help="Optional `.meta.tame` sidecar path to apply while loading the dataset.")
