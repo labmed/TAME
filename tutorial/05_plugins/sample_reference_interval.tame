@@ -1,0 +1,24 @@
+<META>
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[WORKS]
+RI = ["VALIDATE", "REFERENCE_INTERVAL"]
+
+[REFERENCE_INTERVAL]
+LOW_Q = 0.025
+HIGH_Q = 0.975
+
+[PLUGINS]
+MODULES = ["tutorial.plugin_examples.example_count_plugin"]
+</META>
+<DATA>
+[[TESTNAME]]검사항목명	[[GENDER]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값
+AST	M	5	10
+AST	F	15	12
+AST	M	25	<30
+AST	F	72	20
+ALT	M	35	30
+ALT	F	82	40
+</DATA>

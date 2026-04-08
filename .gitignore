@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+~$*
+
+tutorial/11_command_pipelines/outputs/

@@ -1,0 +1,13 @@
+<META>
+[INFO]
+DESCRIPTION = """병원 B 예제"""
+
+[SETTINGS]
+CRR = "VALUE"
+</META>
+<DATA>
+[[HOSPITAL_ID]]hospitalCode	[[TESTNAME]]testName	[[GENDER]]gender	[[AGE]]ageYears	[[RESULT::<NUM>]]resultValue
+HOSP_B	AST	F	22	<25
+HOSP_B	AST	M	28	18
+HOSP_B	ALT	M	53	35
+</DATA>
