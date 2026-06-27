@@ -1,3 +1,5 @@
-from .manager import get_plugin, list_plugins, run_plugin
+"""Built-in plugin modules loaded by tametools.plugin_base.manager.
 
-__all__ = ["get_plugin", "list_plugins", "run_plugin"]
+This package contains the plugin implementations that are distributed with
+tametools. Plugin registration and loading APIs live in tametools.plugin_base.
+"""

@@ -1,0 +1,28 @@
+<META>
+[INFO]
+DESCRIPTION = "External report plugin example: role helper + plugin reuse + chart + docx output"
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[PLUGINS]
+MODULES = [
+  "tutorial.plugin_examples.example_count_plugin",
+  "tutorial.plugin_examples.combined_report_plugin",
+]
+
+[COMBINED_CHEMISTRY_REPORT]
+REPORT_PATH = "/tmp/combined_chemistry_report.docx"
+</META>
+<DATA>
+[[TESTNAME]]검사항목명	[[SEX]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값
+AST	M	5	10
+AST	F	15	12
+AST	M	25	<30
+AST	F	72	20
+ALT	M	35	30
+ALT	F	82	40
+ALT	M	44	45
+ALT	F	63	42
+</DATA>

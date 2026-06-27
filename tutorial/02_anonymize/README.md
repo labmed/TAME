@@ -15,7 +15,7 @@
 ## 입력 데이터 확인
 
 ```bash
-python3 -m tametools columns tutorial/02_anonymize/sample_phi.tame
+tametools columns tutorial/02_anonymize/sample_phi.tame
 ```
 
 이 예제의 핵심 태그는 다음과 같다.
@@ -26,7 +26,7 @@ python3 -m tametools columns tutorial/02_anonymize/sample_phi.tame
 ## 기본 익명화
 
 ```bash
-python3 -m tametools anonymize tutorial/02_anonymize/sample_phi.tame \
+tametools anonymize tutorial/02_anonymize/sample_phi.tame \
   --output tutorial/02_anonymize/sample_phi_anon.tame \
   --mapping-output-dir tutorial/02_anonymize/sample_phi_mappings
 ```
@@ -58,7 +58,7 @@ sed -n '1,10p' tutorial/02_anonymize/sample_phi_anon.tame
 컬럼을 직접 지정하려면:
 
 ```bash
-python3 -m tametools anonymize tutorial/02_anonymize/sample_phi.tame \
+tametools anonymize tutorial/02_anonymize/sample_phi.tame \
   --hash-column 병원ID \
   --hash-column 등록번호 \
   --drop-column 이름 \

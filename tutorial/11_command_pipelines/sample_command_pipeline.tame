@@ -17,7 +17,7 @@ EXPORT_SQL = [
 ]
 </META>
 <DATA>
-[[TESTNAME]]검사항목명	[[GENDER]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값	[[BY]]진료과
+[[TESTNAME]]검사항목명	[[SEX]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값	[[BY]]진료과
 AST	M	5	10	IM
 AST	F	15	12	IM
 AST	M	25	<30	GS

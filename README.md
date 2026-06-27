@@ -7,90 +7,101 @@ TAME is a tag-first text format for laboratory tabular data, and `tametools` is 
 - `TAME_FORMAT_SPECIFICATION.md`: formal file-format specification for TAME
 - `tametools/`: installable Python package and CLI
 - `tutorial/`: runnable examples for validation, anonymization, merge, export, plugins, embedded functions, and command pipelines
-- `docs/`: program usage and implementation documentation
 
 ## Core Ideas
 
 - Humans read column labels.
 - `tametools` reads tags.
-- Tagged headers such as `[[RESULT::NUM]]result`, `[[AGE]]age`, and `[[GENDER]]sex` drive validation and analysis.
+- Tagged headers such as `[[RESULT::NUM]]result`, `[[AGE]]age`, and `[[SEX]]sex` drive validation and analysis.
 - The canonical header syntax is `[[TAG::TAG]]display_name`.
 - Cell states distinguish `ABSENT`, `NULL`, `EMPTY`, and whitespace-only values.
 - Multi-hospital data can be merged by tag semantics instead of literal column names.
+- Every operation appends provenance to `META[[LOG]]`, so a result `.tame` records how it was produced.
 - `.tame`, `.xlsx`, `.meta.tame`, and `.data.tame` can be chained in repeatable workflows.
 
 ## Main Features
 
+- `init`: bootstrap a starter `.tame` from any `.xlsx`/`.csv` by inferring header tags and datatypes
 - Validation and descriptive analysis based on tagged headers
 - Comparator-aware numeric handling for values such as `<3` or `>5000`
+- Category vocabulary normalization (`normalize-categories`) and ISO 8601 date/time normalization (`normalize-datetimes`)
 - Tag-based merge across differently named source columns
 - Anonymization of `ID` and `HOSPITAL_ID` fields with mapping-table export
+- Provenance and integrity: `logs` (processing history), `verify` (re-run hash match), `stamp`/`check-integrity` (tamper-evident), `check-excel` (spreadsheet coercion damage)
 - Multi-sheet spreadsheet flattening and restoration
 - Image-column conversion between `IMAGE::B64` and `IMAGE::PATH`
 - Export to `csv`, `tsv`, `jsonl`, `sql`, `parquet`, `feather`, and `r_bundle`
 - Reusable sidecar metadata with `.meta.tame`
 - Template-based `import-xlsx` for replacing data while preserving tags and pipeline definitions
-- Embedded `META[FUNCTIONS]` support for lightweight Python or R UDFs
-- Embedded `META[PIPELINES]` support for chaining multiple `tametools` commands
+- Embedded `META[FUNCTIONS]` (lightweight Python/R UDFs) and `META[PIPELINES]` (chained commands)
 
 ## Installation
 
+### Windows (recommended) — installer
+
+Download `tametools-0.2.0-x64.msi` from the [latest release](https://github.com/labmed/TAME/releases/latest)
+and run it. The `tametools` command is added to `PATH` and a **tametools Web Workbench** shortcut is created.
+A closed-network offline bundle (`tametools-windows-offline.zip`) is also provided.
+
+### pip (Linux/macOS/Windows)
+
 ```bash
-python3 -m pip install -e ./tametools
+pip install 'tametools[report,web]'
 ```
 
-With Parquet export support:
+Or install the Python wheel attached to the [latest release](https://github.com/labmed/TAME/releases/latest):
 
 ```bash
-python3 -m pip install -e './tametools[parquet]'
+pip install ./tametools-0.2.0-py3-none-any.whl
 ```
 
-Without installation:
+From a checkout of this repository:
 
 ```bash
-PYTHONPATH=tametools/src:. python3 -m tametools info tutorial/01_tagged_eda/sample_eda.tame
+pip install -e './tametools[report,web]'
 ```
 
 ## Quick Start
 
-Show CLI help:
+All examples below use the installed `tametools` command.
 
 ```bash
-PYTHONPATH=tametools/src:. python3 -m tametools --help
-PYTHONPATH=tametools/src:. python3 -m tametools help run
+tametools --help
+tametools doctor                                   # check install and optional dependencies
 ```
 
-Inspect a tagged dataset:
+Bootstrap a `.tame` from any spreadsheet (new users start here):
 
 ```bash
-PYTHONPATH=tametools/src:. python3 -m tametools info tutorial/01_tagged_eda/sample_eda.tame
-PYTHONPATH=tametools/src:. python3 -m tametools columns tutorial/01_tagged_eda/sample_eda.tame
-PYTHONPATH=tametools/src:. python3 -m tametools validate tutorial/01_tagged_eda/sample_eda.tame
+tametools init data.xlsx --output data.tame        # infer header tags and datatypes
 ```
 
-Run a metadata-defined workflow:
+Inspect, validate, and analyze a tagged dataset:
 
 ```bash
-PYTHONPATH=tametools/src:. python3 -m tametools run tutorial/01_tagged_eda/sample_eda.tame DEFAULT
+tametools info tutorial/01_tagged_eda/sample_eda.tame
+tametools columns tutorial/01_tagged_eda/sample_eda.tame
+tametools validate tutorial/01_tagged_eda/sample_eda.tame
+tametools describe tutorial/01_tagged_eda/sample_eda.tame
+```
+
+Run a metadata-defined workflow and inspect its provenance:
+
+```bash
+tametools run tutorial/01_tagged_eda/sample_eda.tame DEFAULT --output out.tame
+tametools logs out.tame                            # processing history embedded in the artifact
+tametools verify tutorial/01_tagged_eda/sample_eda.tame
 ```
 
 Reuse metadata on a new spreadsheet:
 
 ```bash
-PYTHONPATH=tametools/src:. python3 -m tametools split-tame tutorial/01_tagged_eda/sample_eda.tame \
-  --meta-output sample.meta.tame
-
-PYTHONPATH=tametools/src:. python3 -m tametools run new_results.xlsx DEFAULT \
-  --meta sample.meta.tame \
-  --output validated.tame
+tametools split-tame tutorial/01_tagged_eda/sample_eda.tame --meta-output sample.meta.tame
+tametools run new_results.xlsx DEFAULT --meta sample.meta.tame --output validated.tame
 ```
 
-Run an embedded command pipeline:
-
-```bash
-PYTHONPATH=tametools/src:. python3 -m tametools pipelines tutorial/11_command_pipelines/sample_command_pipeline.tame
-PYTHONPATH=tametools/src:. python3 -m tametools run-pipeline tutorial/11_command_pipelines/sample_command_pipeline.tame DEFAULT
-```
+> Without installing, prefix any command with `PYTHONPATH=tametools/src:. python3 -m` from a repository checkout,
+> e.g. `PYTHONPATH=tametools/src:. python3 -m tametools info tutorial/01_tagged_eda/sample_eda.tame`.
 
 ## Tutorials
 
@@ -101,7 +112,11 @@ Start here:
 ## Documentation
 
 - [TAME_FORMAT_SPECIFICATION.md](TAME_FORMAT_SPECIFICATION.md)
-- [docs/TAME_SPEC_AND_TAMETOOLS_REVIEW.md](docs/TAME_SPEC_AND_TAMETOOLS_REVIEW.md)
+
+## Releases
+
+Windows installer (MSI), offline bundle, Python wheel, and source distribution are published on the
+[Releases page](https://github.com/labmed/TAME/releases).
 
 ## Data Safety Note
 

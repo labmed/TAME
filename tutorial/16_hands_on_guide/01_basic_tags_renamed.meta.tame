@@ -1,0 +1,47 @@
+<META>
+[INFO]
+DESCRIPTION = "Step 1b: same clinical meaning with different column names."
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[COLUMN.patient_no]
+TAGS = ["ID(patient)", "STR"]
+
+[COLUMN.specimen_no]
+TAGS = ["ID(sample)", "STR"]
+
+[COLUMN.item]
+TAGS = ["TESTNAME", "ITEM", "CATEGORY"]
+
+[COLUMN.sex]
+TAGS = ["SEX", "CATEGORY"]
+
+[COLUMN.age_years]
+TAGS = ["AGE(baseline)", "NUM"]
+
+[COLUMN.analyzer]
+TAGS = ["INSTRUMENT", "CATEGORY"]
+
+[COLUMN.department]
+TAGS = ["GROUP", "WARD", "CATEGORY"]
+
+[COLUMN.received_at]
+TAGS = ["RECEIVED_AT", "DATETIME"]
+
+[COLUMN.resulted_at]
+TAGS = ["RESULT_TIME", "DATETIME"]
+
+[COLUMN.value]
+TAGS = ["RESULT", "<NUM>"]
+
+[COLUMN.ref_low]
+TAGS = ["REF_LOW", "NUM"]
+
+[COLUMN.ref_high]
+TAGS = ["REF_HIGH", "NUM"]
+
+[COLUMN.disease]
+TAGS = ["LABEL", "CATEGORY"]
+</META>

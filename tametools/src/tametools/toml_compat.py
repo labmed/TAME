@@ -7,6 +7,8 @@ from typing import Any
 
 import tomli
 
+from .exceptions import TameFormatError
+
 
 SIMPLE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -15,7 +17,10 @@ def loads(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         return {}
-    return tomli.loads(stripped)
+    try:
+        return tomli.loads(stripped)
+    except tomli.TOMLDecodeError as exc:
+        raise TameFormatError(f"Invalid TOML control section: {exc}") from exc
 
 
 def dumps(data: dict[str, Any]) -> str:

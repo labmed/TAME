@@ -1,0 +1,42 @@
+<META>
+[INFO]
+DESCRIPTION = "Tag extension guide example: wide RESULT columns with per-column PIVOT_CONTEXT."
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[COLUMN."등록번호"]
+TAGS = ["ID(patient)", "STR"]
+
+[COLUMN."검체번호"]
+TAGS = ["ID(sample)", "STR"]
+
+[COLUMN.AST]
+TAGS = ["RESULT", "NUM"]
+LABEL = "AST"
+UCUM_UNIT = "U/L"
+
+[COLUMN.AST.PIVOT_CONTEXT]
+TESTNAME = "AST"
+UNIT = "U/L"
+REF_LOW = "0"
+REF_HIGH = "40"
+
+[COLUMN.ALT]
+TAGS = ["RESULT", "NUM"]
+LABEL = "ALT"
+UCUM_UNIT = "U/L"
+
+[COLUMN.ALT.PIVOT_CONTEXT]
+TESTNAME = "ALT"
+UNIT = "U/L"
+REF_LOW = "0"
+REF_HIGH = "41"
+</META>
+<DATA>
+등록번호	검체번호	AST	ALT
+P001	S001	28	35
+P002	S002	55	62
+P003	S003	22	25
+</DATA>

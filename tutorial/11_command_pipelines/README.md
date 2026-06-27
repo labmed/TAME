@@ -8,7 +8,7 @@
 
 ## 확인할 점
 
-- `[WORKS]`의 `RI`는 기존 step 기반 파이프라인이다.
+- `[WORKS]`의 `RI`는 `REFERENCE_INTERVAL` 플러그인을 실행하는 work이다.
 - `[PIPELINES]`의 `DEFAULT`는 `sample -> run RI`를 순서대로 실행한다.
 - `[PIPELINES]`의 `EXPORT_SQL`은 샘플 추출 뒤 상대 경로 `outputs/ri_sample.sql`로 SQL export를 만든다.
 - `run-pipeline`은 같은 데이터셋을 계속 넘기면서 명령 체인을 실행한다.
@@ -18,13 +18,13 @@
 파이프라인 목록 확인:
 
 ```bash
-python3 -m tametools pipelines tutorial/11_command_pipelines/sample_command_pipeline.tame
+tametools pipelines tutorial/11_command_pipelines/sample_command_pipeline.tame
 ```
 
 기본 파이프라인 실행 후 최종 `.tame` 저장:
 
 ```bash
-python3 -m tametools run-pipeline tutorial/11_command_pipelines/sample_command_pipeline.tame \
+tametools run-pipeline tutorial/11_command_pipelines/sample_command_pipeline.tame \
   DEFAULT \
   --output /tmp/pipeline_result.tame
 ```
@@ -32,14 +32,14 @@ python3 -m tametools run-pipeline tutorial/11_command_pipelines/sample_command_p
 결과 확인:
 
 ```bash
-python3 -m tametools info /tmp/pipeline_result.tame
-python3 -m tametools columns /tmp/pipeline_result.tame
+tametools info /tmp/pipeline_result.tame
+tametools columns /tmp/pipeline_result.tame
 ```
 
 상대 경로 export가 들어간 파이프라인 실행:
 
 ```bash
-python3 -m tametools run-pipeline tutorial/11_command_pipelines/sample_command_pipeline.tame EXPORT_SQL
+tametools run-pipeline tutorial/11_command_pipelines/sample_command_pipeline.tame EXPORT_SQL
 ```
 
 생성 파일 확인:

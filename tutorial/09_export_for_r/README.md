@@ -17,16 +17,16 @@
 ## 입력 데이터 확인
 
 ```bash
-python3 -m tametools columns tutorial/09_export_for_r/sample_export.tame
-python3 -m tametools states tutorial/09_export_for_r/sample_export.tame
+tametools columns tutorial/09_export_for_r/sample_export.tame
+tametools states tutorial/09_export_for_r/sample_export.tame
 ```
 
 ## direct export
 
 ```bash
-python3 -m tametools export tutorial/09_export_for_r/sample_export.tame tutorial/09_export_for_r/sample_export.csv
-python3 -m tametools export tutorial/09_export_for_r/sample_export.tame tutorial/09_export_for_r/sample_export.tsv
-python3 -m tametools export tutorial/09_export_for_r/sample_export.tame tutorial/09_export_for_r/sample_export.jsonl
+tametools export tutorial/09_export_for_r/sample_export.tame tutorial/09_export_for_r/sample_export.csv
+tametools export tutorial/09_export_for_r/sample_export.tame tutorial/09_export_for_r/sample_export.tsv
+tametools export tutorial/09_export_for_r/sample_export.tame tutorial/09_export_for_r/sample_export.jsonl
 ```
 
 이때 출력 데이터는 canonical 컬럼명과 직렬화된 값 토큰을 사용한다.
@@ -47,7 +47,7 @@ sed -n '1,10p' tutorial/09_export_for_r/sample_export.jsonl
 ## R bundle export
 
 ```bash
-python3 -m tametools export \
+tametools export \
   tutorial/09_export_for_r/sample_export.tame \
   tutorial/09_export_for_r/sample_export_bundle \
   --format r_bundle
@@ -73,8 +73,8 @@ sed -n '1,20p' tutorial/09_export_for_r/sample_export_bundle/README_R.md
 Parquet bundle을 원하면:
 
 ```bash
-python3 -m pip install -e './tametools[parquet]'
-python3 -m tametools export \
+python3 -m pip install './tametools[report,web,parquet]' --no-build-isolation
+tametools export \
   tutorial/09_export_for_r/sample_export.tame \
   tutorial/09_export_for_r/sample_export_bundle_parquet \
   --format r_bundle \
@@ -120,10 +120,10 @@ df <- read.csv(
 순수 숫자 분석을 쉽게 하려면:
 
 ```bash
-python3 -m tametools split-comparator tutorial/09_export_for_r/sample_export.tame \
+tametools split-comparator tutorial/09_export_for_r/sample_export.tame \
   --output tutorial/09_export_for_r/sample_export_split.tame
 
-python3 -m tametools export \
+tametools export \
   tutorial/09_export_for_r/sample_export_split.tame \
   tutorial/09_export_for_r/sample_export_split_bundle \
   --format r_bundle

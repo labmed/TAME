@@ -11,10 +11,14 @@ from typing import Any
 import openpyxl
 import pandas as pd
 
-from .cellstate import parse_serialized_cell, serialize_cell
+from .cellstate import CellTokenConfig, parse_serialized_cell, serialize_cell, token_config
 from .config import ci_get, ci_get_nested
+from .exceptions import TameFormatError, TameImportError
+from .metadata import extract_column_tags, format_settings
 from .merge import drop_absent_only_columns, merge_datasets
 from .models import TameDataset, merged_column_specs
+from .sex import standardize_sex_dataset
+from .tag_placement import dataset_with_tags_in_headers, dataset_with_tags_in_meta
 from .tags import merge_tags
 from .toml_compat import dumps as dumps_toml
 from .toml_compat import loads as loads_toml
@@ -38,11 +42,11 @@ class ControlBundle:
 def read_tame(path: str | Path, *, meta_path: str | Path | None = None) -> TameDataset:
     kind = _path_kind(path)
     if kind == "meta_tame":
-        raise ValueError("Meta-only .meta.tame files cannot be loaded as datasets without a data file.")
+        raise TameFormatError("Meta-only .meta.tame files cannot be loaded as datasets without a data file.")
 
     raw_sections = _read_tame_sections(path, allow_implicit_data=(kind == "data_tame"))
     if "DATA" not in raw_sections:
-        raise ValueError("TAME dataset files require a DATA section.")
+        raise TameFormatError("TAME dataset files require a DATA section.")
 
     sidecar = _load_sidecar_bundle(path, meta_path)
     current = _bundle_from_raw_sections({name: raw_sections[name] for name in CONTROL_SECTION_NAMES if name in raw_sections})
@@ -54,44 +58,39 @@ def read_tame(path: str | Path, *, meta_path: str | Path | None = None) -> TameD
     )
 
 
-def write_tame(path: str | Path, dataset: TameDataset, *, include_schema: bool = True, include_job: bool = True) -> None:
+def write_tame(
+    path: str | Path,
+    dataset: TameDataset,
+    *,
+    include_schema: bool = True,
+    include_job: bool = True,
+    tag_storage: str = "preserve",
+) -> None:
     path = Path(path)
-    sections: list[str] = []
-
-    if include_schema and (dataset.raw_sections.get("SCHEMA") or dataset.schema):
-        schema_text = dataset.raw_sections.get("SCHEMA") or dumps_toml(dataset.schema)
-        sections.append(f"<SCHEMA>\n{schema_text.rstrip()}\n</SCHEMA>")
-
-    if include_job and (dataset.raw_sections.get("JOB") or dataset.job):
-        job_text = dataset.raw_sections.get("JOB") or dumps_toml(dataset.job)
-        sections.append(f"<JOB>\n{job_text.rstrip()}\n</JOB>")
-
-    meta_text = dataset.raw_sections.get("META") or dumps_toml(dataset.meta)
-    sections.append(f"<META>\n{meta_text.rstrip()}\n</META>")
-    sections.append(f"<DATA>\n{_write_tsv(dataset)}\n</DATA>")
+    dataset = standardize_sex_dataset(dataset)
+    dataset = _dataset_for_tag_storage(dataset, tag_storage)
+    include_header_tags = _include_header_tags(tag_storage)
+    sections = _control_sections(dataset, include_schema=include_schema, include_job=include_job)
+    sections.append(f"<DATA>\n{_write_tsv(dataset, include_tags=include_header_tags)}\n</DATA>")
 
     path.write_text("\n".join(sections) + "\n", encoding="utf-8")
 
 
 def write_meta_tame(path: str | Path, dataset: TameDataset, *, include_schema: bool = True, include_job: bool = True) -> None:
     path = Path(path)
-    sections: list[str] = []
-
-    if include_schema and (dataset.raw_sections.get("SCHEMA") or dataset.schema):
-        schema_text = dataset.raw_sections.get("SCHEMA") or dumps_toml(dataset.schema)
-        sections.append(f"<SCHEMA>\n{schema_text.rstrip()}\n</SCHEMA>")
-
-    if include_job and (dataset.raw_sections.get("JOB") or dataset.job):
-        job_text = dataset.raw_sections.get("JOB") or dumps_toml(dataset.job)
-        sections.append(f"<JOB>\n{job_text.rstrip()}\n</JOB>")
-
     meta = _materialized_meta_for_sidecar(dataset)
-    sections.append(f"<META>\n{dumps_toml(meta).rstrip()}\n</META>")
+    sections = _control_sections(
+        dataset,
+        include_schema=include_schema,
+        include_job=include_job,
+        meta_text=dumps_toml(meta),
+    )
     path.write_text("\n".join(sections) + "\n", encoding="utf-8")
 
 
 def write_data_tame(path: str | Path, dataset: TameDataset) -> None:
     path = Path(path)
+    dataset = standardize_sex_dataset(dataset)
     path.write_text(f"<DATA>\n{_write_tsv(dataset)}\n</DATA>\n", encoding="utf-8")
 
 
@@ -110,7 +109,12 @@ def import_xlsx_into_tame(template: TameDataset, xlsx_path: str | Path) -> TameD
     )
 
 
-def read_xlsx(path: str | Path, *, meta_path: str | Path | None = None) -> TameDataset:
+def read_xlsx(
+    path: str | Path,
+    *,
+    meta_path: str | Path | None = None,
+    source_column_name: str | None = None,
+) -> TameDataset:
     workbook = openpyxl.load_workbook(path, data_only=True)
     meta_text = _sheet_text(workbook, "META")
     schema_text = _sheet_text(workbook, "SCHEMA")
@@ -145,18 +149,19 @@ def read_xlsx(path: str | Path, *, meta_path: str | Path | None = None) -> TameD
         frame = datasets[0].df
         columns = datasets[0].columns
     else:
+        sheet_source_column = _source_column_name(merged_controls.meta, source_column_name)
         merged = merge_datasets(
             datasets,
             source_labels=data_sheet_names,
             add_source_column=True,
-            source_column_name="시트명",
+            source_column_name=sheet_source_column,
             source_column_tags=("SHEET", "STR"),
             numeric_conflict="promote",
             prefer_tag_names=True,
         ).dataset
         frame = merged.df
         columns = merged.columns
-        meta = _augment_multisheet_meta(merged_controls.meta, data_sheet_names)
+        meta = _augment_multisheet_meta(merged_controls.meta, data_sheet_names, source_column_name=sheet_source_column)
         merged_controls = _merge_control_bundles(
             None,
             ControlBundle(
@@ -178,28 +183,38 @@ def read_xlsx(path: str | Path, *, meta_path: str | Path | None = None) -> TameD
     )
 
 
-def write_xlsx(path: str | Path, dataset: TameDataset, *, include_schema: bool = True, include_job: bool = True) -> None:
+def write_xlsx(
+    path: str | Path,
+    dataset: TameDataset,
+    *,
+    include_schema: bool = True,
+    include_job: bool = True,
+    tag_storage: str = "preserve",
+) -> None:
+    dataset = standardize_sex_dataset(dataset)
+    dataset = _dataset_for_tag_storage(dataset, tag_storage)
+    include_header_tags = _include_header_tags(tag_storage)
     workbook = openpyxl.Workbook()
     sheet_column = dataset.first_column_with_tag("SHEET")
     if sheet_column is None:
         data_sheet = workbook.active
         data_sheet.title = "DATA"
-        _write_data_sheet(data_sheet, dataset)
+        _write_data_sheet(data_sheet, dataset, include_tags=include_header_tags)
     else:
         groups = _sheet_groups(dataset, sheet_column.name)
         first_sheet = workbook.active
         first_sheet.title = _excel_sheet_name(groups[0][0], used_names=set())
         group_name, group_dataset = groups[0]
-        _write_data_sheet(first_sheet, group_dataset)
+        _write_data_sheet(first_sheet, group_dataset, include_tags=include_header_tags)
 
         used_names = {first_sheet.title}
         for raw_name, group_dataset in groups[1:]:
             sheet_name = _excel_sheet_name(raw_name, used_names=used_names)
             used_names.add(sheet_name)
             sheet = workbook.create_sheet(sheet_name)
-            _write_data_sheet(sheet, group_dataset)
+            _write_data_sheet(sheet, group_dataset, include_tags=include_header_tags)
 
-    _write_text_sheet(workbook, "META", dataset.raw_sections.get("META") or dumps_toml(dataset.meta))
+    _write_text_sheet(workbook, "META", dumps_toml(dataset.meta))
     if include_schema and (dataset.raw_sections.get("SCHEMA") or dataset.schema):
         _write_text_sheet(workbook, "SCHEMA", dataset.raw_sections.get("SCHEMA") or dumps_toml(dataset.schema))
     if include_job and (dataset.raw_sections.get("JOB") or dataset.job):
@@ -226,7 +241,7 @@ def _path_kind(path: str | Path) -> str:
         return "tame"
     if suffix in {".xlsx", ".xlsm"}:
         return "xlsx"
-    raise ValueError(f"Unsupported input format: {path}")
+    raise TameFormatError(f"Unsupported input format: {path}")
 
 
 def _read_tame_sections(
@@ -367,6 +382,60 @@ def _serialize_control_sections(meta: dict[str, Any], schema: dict[str, Any], jo
     return sections
 
 
+def _control_sections(
+    dataset: TameDataset,
+    *,
+    include_schema: bool = True,
+    include_job: bool = True,
+    meta_text: str | None = None,
+) -> list[str]:
+    sections: list[str] = []
+    if include_schema and (dataset.raw_sections.get("SCHEMA") or dataset.schema):
+        schema_text = dataset.raw_sections.get("SCHEMA") or dumps_toml(dataset.schema)
+        sections.append(_wrapped_section("SCHEMA", schema_text))
+    if include_job and (dataset.raw_sections.get("JOB") or dataset.job):
+        job_text = dataset.raw_sections.get("JOB") or dumps_toml(dataset.job)
+        sections.append(_wrapped_section("JOB", job_text))
+    resolved_meta_text = meta_text if meta_text is not None else dumps_toml(dataset.meta)
+    sections.append(_wrapped_section("META", resolved_meta_text))
+    return sections
+
+
+def _wrapped_section(name: str, text: str) -> str:
+    return f"<{name}>\n{text.rstrip()}\n</{name}>"
+
+
+def _dataset_for_tag_storage(dataset: TameDataset, tag_storage: str) -> TameDataset:
+    normalized = _normalize_tag_storage(tag_storage)
+    if normalized == "preserve":
+        return dataset
+    if normalized == "meta":
+        return dataset_with_tags_in_meta(dataset)
+    if normalized == "header":
+        return dataset_with_tags_in_headers(dataset)[0]
+    raise ValueError(f"Unsupported tag_storage: {tag_storage}")
+
+
+def _include_header_tags(tag_storage: str) -> bool:
+    return _normalize_tag_storage(tag_storage) != "meta"
+
+
+def _normalize_tag_storage(tag_storage: str) -> str:
+    normalized = str(tag_storage or "preserve").strip().lower().replace("-", "_")
+    aliases = {
+        "preserve": "preserve",
+        "both": "preserve",
+        "meta": "meta",
+        "metadata": "meta",
+        "header": "header",
+        "headers": "header",
+        "data": "header",
+    }
+    if normalized not in aliases:
+        raise ValueError("tag_storage must be one of: preserve, meta, header")
+    return aliases[normalized]
+
+
 def _dataset_from_parts(*, data_text: str, controls: ControlBundle, source_path: str) -> TameDataset:
     df = _read_tsv(data_text, _header_rows(controls.meta), _cell_settings(controls.meta))
     columns = merged_column_specs(
@@ -391,16 +460,23 @@ def _dataset_from_parts(*, data_text: str, controls: ControlBundle, source_path:
 def _materialized_meta_for_sidecar(dataset: TameDataset) -> dict[str, Any]:
     meta = deepcopy(dataset.meta)
     existing = _extract_meta_tags(meta)
-    merged: dict[str, list[str]] = {}
+    for key in list(meta):
+        if str(key).upper() == "TAGS":
+            meta.pop(key, None)
+    column_section = ci_get(meta, "COLUMN", {})
+    column_section = dict(column_section) if isinstance(column_section, dict) else {}
     for column in dataset.columns:
         tags = merge_tags(existing.get(column.name, ()), column.tags)
         if tags:
-            merged[column.name] = list(tags)
+            entry = column_section.get(column.name, {})
+            entry = dict(entry) if isinstance(entry, dict) else {}
+            entry["TAGS"] = list(tags)
+            column_section[column.name] = entry
     for name, tags in existing.items():
-        if name not in merged and tags:
-            merged[name] = list(tags)
-    if merged:
-        meta["TAGS"] = merged
+        if name not in column_section and tags:
+            column_section[name] = {"TAGS": list(tags)}
+    if column_section:
+        meta["COLUMN"] = column_section
     return meta
 
 
@@ -430,7 +506,7 @@ def _validate_import_headers(template: TameDataset, incoming: TameDataset) -> No
                 )
 
     if errors:
-        raise ValueError("XLSX import header validation failed.\n" + "\n".join(errors))
+        raise TameImportError("XLSX import header validation failed.\n" + "\n".join(errors))
 
 
 def _read_xlsx_with_controls(path: str | Path, controls: ControlBundle) -> TameDataset:
@@ -486,29 +562,43 @@ def _header_rows(meta: dict[str, Any]) -> int:
     rows = ci_get_nested(meta, "DATA", "headers", default=None)
     if rows is None:
         rows = ci_get_nested(meta, "data", "headers", default=1)
-    return int(rows)
+    try:
+        return int(rows)
+    except (TypeError, ValueError) as exc:
+        raise TameFormatError(f"META[DATA].headers must be an integer, got {rows!r}.") from exc
 
 
 def _cell_settings(meta: dict[str, Any]) -> dict[str, Any]:
-    settings = ci_get(meta, "SETTINGS", {})
-    return settings if isinstance(settings, dict) else {}
+    return format_settings(meta)
+
+
+def _source_column_name(meta: dict[str, Any], override: str | None) -> str:
+    if override and str(override).strip():
+        return str(override).strip()
+    multisheet = ci_get(meta, "MULTISHEET", {})
+    if isinstance(multisheet, dict):
+        configured = ci_get(multisheet, "SOURCE_COLUMN_NAME", ci_get(multisheet, "COLUMN", ""))
+        if str(configured).strip():
+            return str(configured).strip()
+    return "시트명"
 
 
 def _read_tsv(text: str, header_rows: int, cell_settings: dict[str, Any]) -> pd.DataFrame:
     reader = csv.reader(StringIO(text), delimiter="\t", quotechar='"')
     rows = [row for row in reader]
     headers, data_rows = _split_header_rows(rows, header_rows)
-    parsed_rows = [[parse_serialized_cell(value, cell_settings) for value in row] for row in data_rows]
+    cfg = token_config(cell_settings)
+    parsed_rows = [[parse_serialized_cell(value, cfg) for value in row] for row in data_rows]
     return _frame_from_rows(headers, parsed_rows)
 
 
-def _write_tsv(dataset: TameDataset) -> str:
+def _write_tsv(dataset: TameDataset, *, include_tags: bool = True) -> str:
     buffer = StringIO()
     writer = csv.writer(buffer, delimiter="\t", quotechar='"', lineterminator="\n")
-    writer.writerow(dataset.tagged_headers())
-    cell_settings = _cell_settings(dataset.meta)
+    writer.writerow(dataset.tagged_headers() if include_tags else [column.name for column in dataset.columns])
+    cfg = token_config(_cell_settings(dataset.meta))
     for row in dataset.df.itertuples(index=False):
-        writer.writerow([_tsv_cell_value(value, cell_settings) for value in row])
+        writer.writerow([_tsv_cell_value(value, cfg) for value in row])
     return buffer.getvalue().rstrip("\n")
 
 
@@ -537,14 +627,7 @@ def _frame_from_rows(headers: list[str], data_rows: list[list[Any]]) -> pd.DataF
 
 
 def _extract_meta_tags(meta: dict[str, Any]) -> dict[str, tuple[str, ...]]:
-    section = ci_get(meta, "TAGS", {})
-    result: dict[str, tuple[str, ...]] = {}
-    if not isinstance(section, dict):
-        return result
-    for name, tags in section.items():
-        if isinstance(tags, list):
-            result[str(name)] = merge_tags(tags)
-    return result
+    return extract_column_tags(meta)
 
 
 def _extract_schema_tags(schema: dict[str, Any]) -> dict[str, tuple[str, ...]]:
@@ -582,11 +665,12 @@ def _write_text_sheet(workbook: openpyxl.Workbook, sheet_name: str, text: str) -
 
 
 def _sheet_rows(sheet: openpyxl.worksheet.worksheet.Worksheet, cell_settings: dict[str, Any]) -> list[list[Any]]:
+    cfg = token_config(cell_settings)
     rows = []
     for row in sheet.iter_rows(values_only=True):
         if row is None:
             continue
-        rows.append([parse_serialized_cell(value, cell_settings) for value in row])
+        rows.append([parse_serialized_cell(value, cfg) for value in row])
     return rows
 
 
@@ -602,12 +686,12 @@ def _data_sheet_names(workbook: openpyxl.Workbook) -> list[str]:
     return [name for name in workbook.sheetnames if name.upper() not in CONTROL_SHEETS]
 
 
-def _tsv_cell_value(value: Any, cell_settings: dict[str, Any]) -> Any:
-    return serialize_cell(value, cell_settings, for_excel=False)
+def _tsv_cell_value(value: Any, cfg: CellTokenConfig) -> Any:
+    return serialize_cell(value, cfg, for_excel=False)
 
 
-def _xlsx_cell_value(value: Any, cell_settings: dict[str, Any]) -> Any:
-    return serialize_cell(value, cell_settings, for_excel=True)
+def _xlsx_cell_value(value: Any, cfg: CellTokenConfig) -> Any:
+    return serialize_cell(value, cfg, for_excel=True)
 
 
 def _sheet_dataset(
@@ -639,23 +723,25 @@ def _sheet_dataset(
     )
 
 
-def _augment_multisheet_meta(meta: dict[str, Any], sheet_names: list[str]) -> dict[str, Any]:
+def _augment_multisheet_meta(meta: dict[str, Any], sheet_names: list[str], *, source_column_name: str) -> dict[str, Any]:
     updated = dict(meta)
     updated["MULTISHEET"] = {
-        "COLUMN": "시트명",
+        "COLUMN": source_column_name,
+        "SOURCE_COLUMN_NAME": source_column_name,
         "SHEETS": list(sheet_names),
     }
     return updated
 
 
-def _write_data_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet, dataset: TameDataset) -> None:
-    for col_idx, header in enumerate(dataset.tagged_headers(), start=1):
+def _write_data_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet, dataset: TameDataset, *, include_tags: bool = True) -> None:
+    headers = dataset.tagged_headers() if include_tags else [column.name for column in dataset.columns]
+    for col_idx, header in enumerate(headers, start=1):
         sheet.cell(row=1, column=col_idx, value=header)
 
-    cell_settings = _cell_settings(dataset.meta)
+    cfg = token_config(_cell_settings(dataset.meta))
     for row_idx, row in enumerate(dataset.df.itertuples(index=False), start=2):
         for col_idx, value in enumerate(row, start=1):
-            sheet.cell(row=row_idx, column=col_idx, value=_xlsx_cell_value(value, cell_settings))
+            sheet.cell(row=row_idx, column=col_idx, value=_xlsx_cell_value(value, cfg))
 
 
 def _sheet_groups(dataset: TameDataset, sheet_column_name: str) -> list[tuple[str, TameDataset]]:

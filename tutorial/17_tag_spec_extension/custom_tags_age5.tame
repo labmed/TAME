@@ -1,0 +1,75 @@
+<META>
+[INFO]
+DESCRIPTION = "Tag extension guide example: AGE5 custom tag and tag-based analysis."
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[TAG_DEFINITIONS.AGE5]
+LABEL = "5-year age"
+DESCRIPTION = "AGE-compatible custom tag. AGE validation and analysis work, but age bands use 5-year bins."
+INHERITS = ["AGE"]
+AGE_BIN_WIDTH = 5
+
+[TAG_DEFINITIONS.RESULT_INDEX]
+LABEL = "Result / upper limit index"
+DESCRIPTION = "Derived ratio of RESULT to REF_HIGH."
+INHERITS = ["RATIO", "NUM"]
+
+[COLUMN."등록번호"]
+TAGS = ["ID(patient)", "STR"]
+LABEL = "환자 등록번호"
+PHI = true
+
+[COLUMN."검체번호"]
+TAGS = ["ID(sample)", "STR"]
+LABEL = "검체 번호"
+
+[COLUMN."검사항목명"]
+TAGS = ["TESTNAME", "ITEM", "CATEGORY"]
+LABEL = "검사항목"
+
+[COLUMN."성별"]
+TAGS = ["SEX", "CATEGORY", "BY"]
+LABEL = "성별"
+
+[COLUMN."나이"]
+TAGS = ["AGE5", "NUM", "BY"]
+LABEL = "나이"
+UNIT = "year"
+UCUM_UNIT = "a"
+
+[COLUMN."보고값"]
+TAGS = ["RESULT", "<NUM>"]
+LABEL = "보고값"
+UCUM_UNIT = "U/L"
+
+[COLUMN."참고하한"]
+TAGS = ["REF_LOW", "NUM"]
+LABEL = "참고치 하한"
+
+[COLUMN."참고상한"]
+TAGS = ["REF_HIGH", "NUM"]
+LABEL = "참고치 상한"
+
+[ACTIONS.ADD_RESULT_INDEX]
+TYPE = "DERIVE"
+LABEL = "결과/참고상한 비율"
+NAME = "상한대비비율"
+EXPR = "{tag:RESULT} / {tag:REF_HIGH}"
+TAGS = ["RESULT_INDEX"]
+ROUND = 3
+
+[ACTION_PIPELINES]
+DEFAULT = ["ADD_RESULT_INDEX"]
+</META>
+<DATA>
+등록번호	검체번호	검사항목명	성별	나이	보고값	참고하한	참고상한
+P001	S001	AST	male	1	10	0	40
+P002	S002	AST	female	4	20	0	40
+P003	S003	AST	male	6	30	0	40
+P004	S004	AST	female	9	40	0	40
+P005	S005	ALT	male	11	35	0	41
+P006	S006	ALT	female	14	44	0	41
+</DATA>

@@ -8,7 +8,7 @@ VALIDATE_ERROR = "REPORT"
 </META>
 <DATA>
 [[HOSPITAL_ID]]병원ID	[[NAME]]이름	[[ID::STR]]등록번호	[[ITEM]]검사항목명	[[RESULT::<NUM>]]보고값
-HOSP_A	홍길동	P0001	AST	<30
-HOSP_A	김영희	P0002	ALT	25
-HOSP_B	이민수	P1001	AST	<25
+HOSP_A	test_person_1	P0001	AST	<30
+HOSP_A	test_person_2	P0002	ALT	25
+HOSP_B	test_person_3	P1001	AST	<25
 </DATA>

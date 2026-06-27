@@ -26,22 +26,22 @@
 EDA로 현황 확인:
 
 ```bash
-python3 -m tametools eda tutorial/03_comparator_handling/sample_thresholds.tame --comparator-policy DELETE
-python3 -m tametools eda tutorial/03_comparator_handling/sample_thresholds.tame --comparator-policy VALUE
-python3 -m tametools eda tutorial/03_comparator_handling/sample_thresholds.tame --comparator-policy HARMONIZE
+tametools eda tutorial/03_comparator_handling/sample_thresholds.tame --comparator-policy DELETE
+tametools eda tutorial/03_comparator_handling/sample_thresholds.tame --comparator-policy VALUE
+tametools eda tutorial/03_comparator_handling/sample_thresholds.tame --comparator-policy HARMONIZE
 ```
 
 `<NUM>` 분리:
 
 ```bash
-python3 -m tametools split-comparator tutorial/03_comparator_handling/sample_thresholds.tame \
+tametools split-comparator tutorial/03_comparator_handling/sample_thresholds.tame \
   --output tutorial/03_comparator_handling/sample_thresholds_split.tame
 ```
 
 threshold harmonization:
 
 ```bash
-python3 -m tametools harmonize-comparator tutorial/03_comparator_handling/sample_thresholds.tame \
+tametools harmonize-comparator tutorial/03_comparator_handling/sample_thresholds.tame \
   --output tutorial/03_comparator_handling/sample_thresholds_harmonized.tame
 ```
 

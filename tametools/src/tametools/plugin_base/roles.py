@@ -1,0 +1,178 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Iterable
+
+from ..config import ci_get
+from ..models import ColumnSpec, TameDataset
+
+
+@dataclass(frozen=True)
+class PluginRole:
+    name: str
+    tags: tuple[str, ...]
+    cardinality: str = "one"
+    iteration: str = "single"
+    numeric: bool = False
+    option_keys: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class RoleBinding:
+    role: PluginRole
+    columns: tuple[ColumnSpec, ...]
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def first(self) -> ColumnSpec | None:
+        return self.columns[0] if self.columns else None
+
+    @property
+    def is_multi(self) -> bool:
+        return len(self.columns) > 1
+
+
+RESULT_ROLE = PluginRole(
+    name="result",
+    tags=("RESULT", "NUM", "<NUM>"),
+    cardinality="one_or_more",
+    iteration="per_result",
+    numeric=True,
+    option_keys=("RESULT", "RESULT_COLUMN", "SCORE"),
+    aliases=("NUM", "<NUM>"),
+    description="Measured result columns. Multiple columns are analysed independently.",
+)
+
+
+def bind_role(dataset: TameDataset, role: PluginRole, options: dict[str, Any] | None = None) -> RoleBinding:
+    options = options or {}
+    explicit = _explicit_columns(dataset, role, options)
+    if explicit:
+        columns = explicit
+    else:
+        columns = _tag_columns(dataset, role)
+
+    warnings: list[str] = []
+    if not columns and role.cardinality in {"one", "one_or_more"}:
+        warnings.append(f"Missing required role {role.name}: tags={','.join(role.tags)}.")
+    if len(columns) > 1 and role.cardinality == "one":
+        warnings.append(f"Role {role.name} requires one column but matched {len(columns)}: {_names(columns)}.")
+    return RoleBinding(role=role, columns=tuple(columns), warnings=tuple(warnings))
+
+
+def result_binding(dataset: TameDataset, options: dict[str, Any] | None = None) -> RoleBinding:
+    return bind_role(dataset, RESULT_ROLE, options)
+
+
+def result_columns(dataset: TameDataset, options: dict[str, Any] | None = None) -> list[ColumnSpec]:
+    return list(result_binding(dataset, options).columns)
+
+
+def result_source_record(column: ColumnSpec, *, include: bool) -> dict[str, str]:
+    return {"source_result_column": column.name} if include else {}
+
+
+def result_test_name(dataset: TameDataset, result_column: ColumnSpec, test_column: ColumnSpec | None, row_index: Any) -> str:
+    if test_column is None:
+        return result_column.name
+    value = dataset.df.loc[row_index, test_column.name]
+    if value is None:
+        return result_column.name
+    try:
+        import pandas as pd
+
+        if pd.isna(value):
+            return result_column.name
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return text or result_column.name
+
+
+def role_contract_payload(roles: Iterable[PluginRole]) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": role.name,
+            "tags": list(role.tags),
+            "cardinality": role.cardinality,
+            "iteration": role.iteration,
+            "numeric": role.numeric,
+            "option_keys": list(role.option_keys),
+            "aliases": list(role.aliases),
+            "description": role.description,
+        }
+        for role in roles
+    ]
+
+
+def _explicit_columns(dataset: TameDataset, role: PluginRole, options: dict[str, Any]) -> list[ColumnSpec]:
+    result: list[ColumnSpec] = []
+    for key in role.option_keys:
+        value = ci_get(options, key, None)
+        for item in _as_list(value):
+            column = _resolve_column(dataset, item)
+            if column is not None and column.name not in {existing.name for existing in result}:
+                result.append(column)
+    return _filter_numeric(dataset, role, result)
+
+
+def _tag_columns(dataset: TameDataset, role: PluginRole) -> list[ColumnSpec]:
+    if role.name == "result":
+        result_matches = [
+            column
+            for column in dataset.columns_with_tag("RESULT")
+            if dataset.column_has_tag(column, "NUM") or dataset.column_has_tag(column, "<NUM>") or dataset.column_has_tag(column, "RESULT")
+        ]
+        if result_matches:
+            return result_matches
+
+    matched: list[ColumnSpec] = []
+    for tag in role.tags:
+        for column in dataset.columns_with_tag(tag):
+            if column.name not in {existing.name for existing in matched}:
+                matched.append(column)
+    return _filter_numeric(dataset, role, matched)
+
+
+def _filter_numeric(dataset: TameDataset, role: PluginRole, columns: list[ColumnSpec]) -> list[ColumnSpec]:
+    if not role.numeric:
+        return columns
+    return [
+        column
+        for column in columns
+        if dataset.column_has_tag(column, "NUM")
+        or dataset.column_has_tag(column, "<NUM>")
+        or dataset.column_has_tag(column, "RESULT")
+    ]
+
+
+def _resolve_column(dataset: TameDataset, value: Any) -> ColumnSpec | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.lower().startswith("tag:"):
+        matches = dataset.columns_with_tag(text.split(":", 1)[1])
+        return matches[0] if len(matches) == 1 else None
+    for column in dataset.columns:
+        if column.name == text:
+            return column
+    lowered = text.lower()
+    for column in dataset.columns:
+        if column.name.lower() == lowered:
+            return column
+    return None
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _names(columns: Iterable[ColumnSpec]) -> str:
+    return ", ".join(column.name for column in columns)
