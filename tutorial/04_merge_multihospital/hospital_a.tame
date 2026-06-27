@@ -3,7 +3,7 @@
 DESCRIPTION = """병원 A 예제"""
 </META>
 <DATA>
-[[HOSPITAL_ID]]병원ID	[[TESTNAME]]검사명	[[GENDER]]성별	[[AGE]]나이	[[RESULT::NUM]]보고값
+[[HOSPITAL_ID]]병원ID	[[TESTNAME]]검사명	[[SEX]]성별	[[AGE]]나이	[[RESULT::NUM]]보고값
 HOSP_A	AST	M	25	30
 HOSP_A	AST	F	31	29
 HOSP_A	ALT	F	41	40

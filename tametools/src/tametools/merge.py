@@ -8,6 +8,7 @@ import pandas as pd
 
 from .cellstate import STATE_ABSENT, cell_state
 from .models import ColumnSpec, MergeResult, TameDataset
+from .pandas_compat import concat_dataframes
 from .tags import build_header, merge_tags, normalize_tag
 from .transforms import harmonize_comparator_thresholds, split_comparator_columns
 
@@ -43,10 +44,10 @@ def merge_datasets(
 
     canonical_columns: list[ColumnSpec] = []
     key_to_column_name: dict[str, str] = {}
-    for index, (merge_key, specs) in enumerate(grouped_specs.items()):
+    for merge_key, specs in grouped_specs.items():
         canonical = _canonical_column(merge_key, specs, numeric_policy, warnings, prefer_tag_names=prefer_tag_names)
         key_to_column_name[merge_key] = canonical.name
-        canonical_columns.append(ColumnSpec(index=index, original_header=canonical.original_header, name=canonical.name, tags=canonical.tags))
+        canonical_columns.append(ColumnSpec(original_header=canonical.original_header, name=canonical.name, tags=canonical.tags))
 
     merged_frames: list[pd.DataFrame] = []
     for dataset, label, key_map in zip(dataset_list, labels, merge_keys):
@@ -62,14 +63,13 @@ def merge_datasets(
     if add_source_column:
         final_columns.append(
             ColumnSpec(
-                index=len(final_columns),
                 original_header=build_header(source_column_name, source_column_tags or ("BY", "STR", "SOURCE")),
                 name=source_column_name,
                 tags=merge_tags(source_column_tags or ("BY", "STR", "SOURCE")),
             )
         )
 
-    merged_df = pd.concat(merged_frames, ignore_index=True)
+    merged_df = concat_dataframes(merged_frames, ignore_index=True)
     merged_df = merged_df[[column.name for column in final_columns]]
     merged = dataset_list[0].replace(df=merged_df, columns=final_columns, source_path=None)
 
@@ -146,7 +146,6 @@ def _canonical_column(
             tags = merge_tags(tags, ("<NUM>",))
 
     return ColumnSpec(
-        index=0,
         original_header=build_header(name, tags),
         name=name,
         tags=tags,
@@ -197,10 +196,9 @@ def _canonical_name_from_tags(tags: tuple[str, ...], *, fallback: str) -> str:
 
 def _reindex_columns(columns: list[ColumnSpec]) -> list[ColumnSpec]:
     normalized: list[ColumnSpec] = []
-    for index, column in enumerate(columns):
+    for column in columns:
         normalized.append(
             ColumnSpec(
-                index=index,
                 original_header=column.original_header,
                 name=column.name,
                 tags=column.tags,

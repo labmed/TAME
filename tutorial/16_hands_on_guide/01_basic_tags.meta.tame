@@ -1,0 +1,47 @@
+<META>
+[INFO]
+DESCRIPTION = "Step 1: raw LIS columns are interpreted only by META[COLUMN] tags."
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[COLUMN."등록번호"]
+TAGS = ["ID(patient)", "STR"]
+
+[COLUMN."검체번호"]
+TAGS = ["ID(sample)", "STR"]
+
+[COLUMN."검사명"]
+TAGS = ["TESTNAME", "ITEM", "CATEGORY"]
+
+[COLUMN."성별"]
+TAGS = ["SEX", "CATEGORY"]
+
+[COLUMN."나이"]
+TAGS = ["AGE(baseline)", "NUM"]
+
+[COLUMN."장비"]
+TAGS = ["INSTRUMENT", "CATEGORY"]
+
+[COLUMN."진료과"]
+TAGS = ["GROUP", "WARD", "CATEGORY"]
+
+[COLUMN."접수시각"]
+TAGS = ["RECEIVED_AT", "DATETIME"]
+
+[COLUMN."보고시각"]
+TAGS = ["RESULT_TIME", "DATETIME"]
+
+[COLUMN."결과"]
+TAGS = ["RESULT", "<NUM>"]
+
+[COLUMN."참고하한"]
+TAGS = ["REF_LOW", "NUM"]
+
+[COLUMN."참고상한"]
+TAGS = ["REF_HIGH", "NUM"]
+
+[COLUMN."질병라벨"]
+TAGS = ["LABEL", "CATEGORY"]
+</META>

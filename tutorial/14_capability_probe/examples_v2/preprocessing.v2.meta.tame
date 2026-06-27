@@ -1,0 +1,104 @@
+<META>
+[INFO]
+DESCRIPTION = "데이터 전처리 예제 10개 (Q01~Q10). 1차(P01~P10)와 겹치지 않는 ACTION 타입만 사용한다. clinical_chem.tame에 --meta로 붙여 실행한다."
+
+[INFO.SCENARIO]
+PURPOSE = "컬럼명을 한 번도 직접 쓰지 않고 태그(tag:<ROLE> / TAGS)만으로 전처리가 동작하는지 검증한다."
+REUSE_RULE = "기존 컬럼 선택은 모두 tag:<ROLE> 또는 TAGS 참조로만 한다. 신규 생성 컬럼의 이름(NAME/OUTPUT/INTO)만 리터럴을 허용한다."
+
+# 사용법 (저장소 루트에서):
+#   tametools actions tutorial/14_capability_probe/clinical_chem.tame \
+#     --meta tutorial/14_capability_probe/examples_v2/preprocessing.v2.meta.tame
+#   tametools run-action tutorial/14_capability_probe/clinical_chem.tame Q01_ADD_BATCH \
+#     --meta tutorial/14_capability_probe/examples_v2/preprocessing.v2.meta.tame --output out.tame
+
+[ACTIONS.Q01_ADD_BATCH]
+TYPE = "ADD_COLUMN"
+LABEL = "Q01 상수 컬럼 추가 (배치 라벨)"
+DESCRIPTION = "추출 배치 식별용 상수 컬럼을 새 태그와 함께 추가"
+NAME = "추출배치"
+VALUE = "2026Q2"
+TAGS = ["BATCH", "CATEGORY"]
+
+[ACTIONS.Q02_CONCAT_KEY]
+TYPE = "COLUMN.CONCAT"
+LABEL = "Q02 식별자 결합 (복합키 생성)"
+DESCRIPTION = "환자ID와 검체ID를 결합해 복합 분석키를 만든다"
+COLUMNS = ["tag:ID(patient)", "tag:ID(sample)"]
+OUTPUT = "분석키"
+SEP = "::"
+TAGS = ["ID", "STR"]
+
+[ACTIONS.Q03_SPLIT_DATETIME]
+TYPE = "COLUMN.SPLIT"
+LABEL = "Q03 컬럼 분할 (채취일시 → 날짜/시각)"
+DESCRIPTION = "채취 타임스탬프를 공백 기준으로 날짜와 시각으로 분리"
+COLUMN = "tag:COLLECTION_AT"
+INTO = ["채취날짜", "채취시각"]
+SEP = " "
+DROP_SOURCE = false
+COLUMN_TAGS = { "채취날짜" = ["DATE"], "채취시각" = ["TIME"] }
+
+[ACTIONS.Q04_KEEP_CORE]
+TYPE = "COLUMN.INCLUDE"
+LABEL = "Q04 핵심 컬럼만 유지"
+DESCRIPTION = "분석 최소 컬럼(식별자·항목·결과·참고치)만 태그로 선택해 남긴다"
+TAGS = ["ID", "ITEM", "RESULT", "REF_LOW", "REF_HIGH"]
+
+[ACTIONS.Q05_DROP_OPERATIONAL]
+TYPE = "COLUMN.EXCLUDE"
+LABEL = "Q05 운영 컬럼 제거"
+DESCRIPTION = "장비·기관·진료과 등 운영 메타 컬럼을 태그로 골라 제거"
+TAGS = ["INSTRUMENT", "GROUP", "WARD"]
+
+[ACTIONS.Q06_WIDE_BY_ITEM]
+TYPE = "PIVOT_WIDER"
+LABEL = "Q06 long→wide (검체별 항목 펼치기)"
+DESCRIPTION = "검체를 행으로, 검사항목을 열로 펼쳐 결과를 가로 배치"
+ID_COLS = ["tag:ID(sample)"]
+NAMES_FROM = "tag:ITEM"
+VALUES_FROM = "tag:RESULT"
+AGG = "first"
+
+[ACTIONS.Q07_LONG_REF_BOUNDS]
+TYPE = "PIVOT_LONGER"
+LABEL = "Q07 wide→long (참고치 상·하한 녹이기)"
+DESCRIPTION = "참고치 하한/상한 두 컬럼을 이름/값 형태로 길게 변환"
+ID_COLS = ["tag:ID(sample)", "tag:ITEM"]
+COLS = ["tag:REF_LOW", "tag:REF_HIGH"]
+NAMES_TO = "참고치경계"
+VALUES_TO = "참고치값"
+NAMES_TAGS = ["CATEGORY"]
+VALUES_TAGS = ["NUM"]
+
+[ACTIONS.Q08_ROUND_RESULT]
+TYPE = "ROUND"
+LABEL = "Q08 결과 반올림"
+DESCRIPTION = "보고값을 정수로 반올림 (비교자 '<8' 등 비수치 셀은 보존)"
+TAGS = ["RESULT"]
+DECIMALS = 0
+
+[ACTIONS.Q09_SORT_PATIENT_TIME]
+TYPE = "SORT"
+LABEL = "Q09 정렬 (환자·채취시각)"
+DESCRIPTION = "환자ID, 채취일시 순으로 정렬 (델타체크 전처리)"
+BY = ["tag:ID(patient)", "tag:COLLECTION_AT"]
+ASCENDING = [true, true]
+
+[ACTIONS.Q10_CONVERT_CR]
+TYPE = "UNIT.CONVERT"
+LABEL = "Q10 단위 변환 (Cr mg/dL → umol/L)"
+DESCRIPTION = "검사항목·단위 태그로 대상 행을 골라 SI 단위로 변환"
+SOURCE = "tag:RESULT"
+UNIT_COLUMN = "tag:UNIT"
+OUTPUT_VALUE = "결과_SI"
+OUTPUT_UNIT = "단위_SI"
+TARGET_UNIT_BY_TEST = { Cr = "umol/L", DEFAULT = "" }
+CONVERSIONS = { "Cr|mg/dL|umol/L" = 88.4 }
+DECIMALS = 1
+VALUE_TAGS = ["RESULT", "<NUM>", "NULLABLE"]
+
+[ACTION_PIPELINES]
+# 대표 흐름: 정렬 → 복합키 → 핵심컬럼 유지 (태그만으로 연속 전처리)
+CLEAN_V2 = ["Q09_SORT_PATIENT_TIME", "Q02_CONCAT_KEY", "Q04_KEEP_CORE"]
+</META>

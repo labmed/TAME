@@ -6,7 +6,7 @@ VALIDATE_ERROR = "REPORT"
 DEFAULT = ["INFO"]
 </META>
 <DATA>
-[[SHEET::STR]]시트명	[[TESTNAME]]검사항목명	[[GENDER]]성별	[[AGE]]나이	[[RESULT::NUM]]보고값	[[WBC::NUM]]WBC
+[[SHEET::STR]]시트명	[[TESTNAME]]검사항목명	[[SEX]]성별	[[AGE]]나이	[[RESULT::NUM]]보고값	[[WBC::NUM]]WBC
 Chemistry	AST	M	25	30	<<ABSENT>>
 Chemistry	ALT	F	41	40	<<ABSENT>>
 Hematology	CBC	M	33	<<ABSENT>>	5.2

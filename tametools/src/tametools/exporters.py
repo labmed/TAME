@@ -8,7 +8,9 @@ import re
 import pandas as pd
 
 from .cellstate import serialize_cell
+from .metadata import format_settings
 from .models import TameDataset
+from .sex import standardize_sex_dataset
 from .toml_compat import dumps as dumps_toml
 
 
@@ -104,7 +106,7 @@ def export_r_bundle(
     files.append(columns_path)
 
     meta_path = bundle_dir / "meta.toml"
-    meta_path.write_text(dataset.raw_sections.get("META") or dumps_toml(dataset.meta), encoding="utf-8")
+    meta_path.write_text(dumps_toml(dataset.meta), encoding="utf-8")
     files.append(meta_path)
 
     if include_schema and (dataset.raw_sections.get("SCHEMA") or dataset.schema):
@@ -205,7 +207,8 @@ def _export_sql(dataset: TameDataset, output_path: Path) -> ExportResult:
 
 
 def _serialized_export_frame(dataset: TameDataset) -> pd.DataFrame:
-    settings = dataset.settings()
+    dataset = standardize_sex_dataset(dataset)
+    settings = format_settings(dataset.meta)
     exported = pd.DataFrame(index=dataset.df.index)
     for column in dataset.columns:
         exported[column.name] = dataset.df[column.name].map(lambda value: str(serialize_cell(value, settings, for_excel=False)))
@@ -215,7 +218,7 @@ def _serialized_export_frame(dataset: TameDataset) -> pd.DataFrame:
 def _bundle_columns_frame(dataset: TameDataset) -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "index": [column.index for column in dataset.columns],
+            "index": list(range(len(dataset.columns))),
             "name": [column.name for column in dataset.columns],
             "original_header": [column.original_header for column in dataset.columns],
             "tagged_header": [column.tagged_header for column in dataset.columns],

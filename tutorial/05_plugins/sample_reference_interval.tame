@@ -14,7 +14,7 @@ HIGH_Q = 0.975
 MODULES = ["tutorial.plugin_examples.example_count_plugin"]
 </META>
 <DATA>
-[[TESTNAME]]검사항목명	[[GENDER]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값
+[[TESTNAME]]검사항목명	[[SEX]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값
 AST	M	5	10
 AST	F	15	12
 AST	M	25	<30

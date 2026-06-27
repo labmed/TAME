@@ -1,0 +1,98 @@
+<META>
+[INFO]
+DESCRIPTION = "데이터 전처리 예제 10개 (P01~P10). clinical_chem.tame에 --meta로 붙여 실행한다."
+
+[INFO.SCENARIO]
+PURPOSE = "컬럼명이 바뀌어도 태그와 META만으로 같은 전처리 결과가 나오는지 검증한다."
+REUSE_RULE = "ACTIONS는 실제 컬럼명 대신 tag:<ROLE> 참조를 우선 사용한다."
+
+# 사용법 (저장소 루트에서):
+#   tametools run-action tutorial/14_capability_probe/clinical_chem.tame P01_DEDUP \
+#     --meta tutorial/14_capability_probe/examples/preprocessing.meta.tame --output out.tame
+#   tametools actions tutorial/14_capability_probe/clinical_chem.tame \
+#     --meta tutorial/14_capability_probe/examples/preprocessing.meta.tame
+
+[ACTIONS.P01_DEDUP]
+TYPE = "DEDUP"
+LABEL = "P01 중복 레코드 제거"
+DESCRIPTION = "동일 환자·검사·채취일시 중복 행 제거"
+COLUMNS = ["tag:ID(patient)", "tag:ITEM", "tag:COLLECTION_AT"]
+KEEP = "first"
+
+[ACTIONS.P02_DROP_MISSING]
+TYPE = "ROW.EXCLUDE"
+LABEL = "P02 결측 결과행 제거"
+DESCRIPTION = "보고값이 비어 있는 행 제외"
+CONDITIONS = [ { TAG = "RESULT", OP = "is_empty" } ]
+
+[ACTIONS.P03_FILTER_HIGH]
+TYPE = "ROW.INCLUDE"
+LABEL = "P03 수치 범위 필터"
+DESCRIPTION = "보고값 > 100 인 행만 추출 (숫자 비교 필터)"
+CONDITIONS = [ { TAG = "RESULT", OP = "gt", VALUE = 100 } ]
+
+[ACTIONS.P04_DERIVE_RATIO]
+TYPE = "DERIVE"
+LABEL = "P04 산술 파생 컬럼"
+DESCRIPTION = "참고치 상한 대비 비 = 보고값 / 참고치상한"
+NAME = "참고치대비비"
+EXPR = "{tag:RESULT} / {tag:REF_HIGH}"
+ROUND = 3
+TAGS = ["RATIO", "NUM"]
+
+[ACTIONS.P05_AGE_FROM_BIRTH]
+TYPE = "DATE_DERIVE"
+LABEL = "P05 날짜 파생 (생년월일→연령)"
+DESCRIPTION = "채취일시 기준 만 나이 계산"
+KIND = "age"
+NAME = "방문시연령"
+FROM = "tag:BIRTHDATE"
+AS_OF = "tag:COLLECTION_AT"
+TAGS = ["AGE(visit)", "NUM"]
+
+[ACTIONS.P06_IMPUTE_RESULT]
+TYPE = "IMPUTE"
+LABEL = "P06 결측 대치"
+DESCRIPTION = "보고값 결측을 검사항목별 중앙값으로 대치"
+TAGS = ["RESULT"]
+METHOD = "median"
+BY = ["tag:ITEM"]
+
+[ACTIONS.P07_OUTLIER_FILTER]
+TYPE = "OUTLIER_FILTER"
+LABEL = "P07 이상치 제거"
+DESCRIPTION = "검사항목별 IQR 1.5배 밖 보고값 행 제거"
+COLUMN = "tag:RESULT"
+METHOD = "iqr"
+FACTOR = 1.5
+BY = ["tag:ITEM"]
+
+[ACTIONS.P08_RECODE_DEPT]
+TYPE = "RECODE"
+LABEL = "P08 값 재코딩"
+DESCRIPTION = "진료과 코드 표준화 (IM/GS/EM → 한글명)"
+COLUMN = "tag:WARD"
+MAP = { IM = "내과", GS = "외과", EM = "응급의학과" }
+
+[ACTIONS.P09_JOIN_DEMO]
+TYPE = "JOIN"
+LABEL = "P09 키 기반 조인"
+DESCRIPTION = "ID(patient) 태그로 인구통계(demographics.tame) 가로 결합"
+RIGHT = "tutorial/14_capability_probe/examples/demographics.tame"
+ON = ["tag:ID(patient)"]
+HOW = "left"
+
+[ACTIONS.P10_BIN_AGE]
+TYPE = "BIN"
+LABEL = "P10 연속형 구간 범주화"
+DESCRIPTION = "나이를 연령군(<40/40-59/60+)으로 범주화"
+COLUMN = "tag:AGE(baseline)"
+NAME = "연령군"
+BINS = [0, 40, 60, 200]
+LABELS = ["<40", "40-59", "60+"]
+TAGS = ["AGE_GROUP", "CATEGORY"]
+
+[ACTION_PIPELINES]
+# 대표 전처리 흐름: 중복제거 → 결측제거 → 재코딩 → 연령파생 → 연령군 범주화
+CLEAN = ["P01_DEDUP", "P02_DROP_MISSING", "P08_RECODE_DEPT", "P05_AGE_FROM_BIRTH", "P10_BIN_AGE"]
+</META>

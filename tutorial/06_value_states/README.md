@@ -27,17 +27,17 @@
 상태 확인:
 
 ```bash
-python3 -m tametools states tutorial/06_value_states/sample_value_states.tame
+tametools states tutorial/06_value_states/sample_value_states.tame
 ```
 
 검증:
 
 ```bash
-python3 -m tametools validate tutorial/06_value_states/sample_value_states.tame
+tametools validate tutorial/06_value_states/sample_value_states.tame
 ```
 
 요약:
 
 ```bash
-python3 -m tametools describe tutorial/06_value_states/sample_value_states.tame
+tametools describe tutorial/06_value_states/sample_value_states.tame
 ```

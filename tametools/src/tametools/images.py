@@ -162,7 +162,6 @@ def encode_image_value(payload: bytes, *, mime: str) -> str:
 def _replace_column_tag(column: ColumnSpec, *, old_tag: str, new_tag: str) -> ColumnSpec:
     tags = merge_tags([tag for tag in column.tags if tag != old_tag], [new_tag])
     return ColumnSpec(
-        index=column.index,
         original_header=build_header(column.name, tags),
         name=column.name,
         tags=tags,
@@ -174,7 +173,6 @@ def _reindex_columns(columns: list[ColumnSpec]) -> list[ColumnSpec]:
     for index, column in enumerate(columns):
         normalized.append(
             ColumnSpec(
-                index=index,
                 original_header=column.original_header,
                 name=column.name,
                 tags=column.tags,

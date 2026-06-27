@@ -45,7 +45,12 @@ class CellTokenConfig:
     escape_prefix: str = DEFAULT_ESCAPE_PREFIX
 
 
-def token_config(mapping: Mapping[str, Any] | None) -> CellTokenConfig:
+CellTokenSource = Mapping[str, Any] | CellTokenConfig | None
+
+
+def token_config(mapping: CellTokenSource = None) -> CellTokenConfig:
+    if isinstance(mapping, CellTokenConfig):
+        return mapping
     return CellTokenConfig(
         absent_token=str(ci_get(mapping, "ABSENT_TOKEN", DEFAULT_ABSENT_TOKEN)),
         null_token=str(ci_get(mapping, "NULL_TOKEN", DEFAULT_NULL_TOKEN)),
@@ -56,7 +61,7 @@ def token_config(mapping: Mapping[str, Any] | None) -> CellTokenConfig:
     )
 
 
-def parse_serialized_cell(value: Any, mapping: Mapping[str, Any] | None = None) -> Any:
+def parse_serialized_cell(value: Any, mapping: CellTokenSource = None) -> Any:
     if _is_absent_value(value):
         return None
     if not isinstance(value, str):
@@ -84,7 +89,7 @@ def parse_serialized_cell(value: Any, mapping: Mapping[str, Any] | None = None) 
     return value
 
 
-def serialize_cell(value: Any, mapping: Mapping[str, Any] | None = None, *, for_excel: bool = False) -> Any:
+def serialize_cell(value: Any, mapping: CellTokenSource = None, *, for_excel: bool = False) -> Any:
     cfg = token_config(mapping)
     state = cell_state(value)
     if state == STATE_ABSENT:
@@ -128,10 +133,14 @@ def parse_ws_token_length(text: str, cfg: CellTokenConfig | None = None) -> int 
 
 
 def state_counts(series: pd.Series) -> dict[str, int]:
-    counts = {STATE_ABSENT: 0, STATE_NULL: 0, STATE_EMPTY: 0, STATE_WS: 0, STATE_VALUE: 0}
-    for value in series.tolist():
-        counts[cell_state(value)] += 1
-    return counts
+    observed = series.map(cell_state).value_counts(dropna=False).to_dict()
+    return {
+        STATE_ABSENT: int(observed.get(STATE_ABSENT, 0)),
+        STATE_NULL: int(observed.get(STATE_NULL, 0)),
+        STATE_EMPTY: int(observed.get(STATE_EMPTY, 0)),
+        STATE_WS: int(observed.get(STATE_WS, 0)),
+        STATE_VALUE: int(observed.get(STATE_VALUE, 0)),
+    }
 
 
 def _is_absent_value(value: Any) -> bool:

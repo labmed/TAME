@@ -1,0 +1,161 @@
+<META>
+[INFO]
+DESCRIPTION = "Step 2: basic tags plus preprocessing actions, analysis menu, and report plugin."
+
+[INFO.SCENARIO]
+PURPOSE = "Show a hands-on workflow that changes META tags and runs preprocessing, clinical analysis, charts, and report generation."
+USER = "Clinical laboratory staff with limited programming background"
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[COLUMN."등록번호"]
+TAGS = ["ID(patient)", "STR"]
+
+[COLUMN."검체번호"]
+TAGS = ["ID(sample)", "STR"]
+
+[COLUMN."검사명"]
+TAGS = ["TESTNAME", "ITEM", "CATEGORY"]
+
+[COLUMN."성별"]
+TAGS = ["SEX", "CATEGORY"]
+
+[COLUMN."나이"]
+TAGS = ["AGE(baseline)", "NUM"]
+
+[COLUMN."장비"]
+TAGS = ["INSTRUMENT", "CATEGORY"]
+
+[COLUMN."진료과"]
+TAGS = ["GROUP", "WARD", "CATEGORY"]
+
+[COLUMN."접수시각"]
+TAGS = ["RECEIVED_AT", "DATETIME"]
+
+[COLUMN."보고시각"]
+TAGS = ["RESULT_TIME", "DATETIME"]
+
+[COLUMN."결과"]
+TAGS = ["RESULT", "<NUM>"]
+
+[COLUMN."참고하한"]
+TAGS = ["REF_LOW", "NUM"]
+
+[COLUMN."참고상한"]
+TAGS = ["REF_HIGH", "NUM"]
+
+[COLUMN."질병라벨"]
+TAGS = ["LABEL", "CATEGORY"]
+
+[COLUMN.patient_no]
+TAGS = ["ID(patient)", "STR"]
+
+[COLUMN.specimen_no]
+TAGS = ["ID(sample)", "STR"]
+
+[COLUMN.item]
+TAGS = ["TESTNAME", "ITEM", "CATEGORY"]
+
+[COLUMN.sex]
+TAGS = ["SEX", "CATEGORY"]
+
+[COLUMN.age_years]
+TAGS = ["AGE(baseline)", "NUM"]
+
+[COLUMN.analyzer]
+TAGS = ["INSTRUMENT", "CATEGORY"]
+
+[COLUMN.department]
+TAGS = ["GROUP", "WARD", "CATEGORY"]
+
+[COLUMN.received_at]
+TAGS = ["RECEIVED_AT", "DATETIME"]
+
+[COLUMN.resulted_at]
+TAGS = ["RESULT_TIME", "DATETIME"]
+
+[COLUMN.value]
+TAGS = ["RESULT", "<NUM>"]
+
+[COLUMN.ref_low]
+TAGS = ["REF_LOW", "NUM"]
+
+[COLUMN.ref_high]
+TAGS = ["REF_HIGH", "NUM"]
+
+[COLUMN.disease]
+TAGS = ["LABEL", "CATEGORY"]
+
+[PLUGINS]
+MODULES = ["tutorial.plugin_examples.combined_report_plugin"]
+
+[ACTIONS.DEDUP_SAMPLE_ITEM]
+TYPE = "DEDUP"
+LABEL = "중복 검체-항목 제거"
+TAGS = ["ID(sample)", "ITEM", "INSTRUMENT"]
+KEEP = "first"
+
+[ACTIONS.ADD_TAT_MINUTES]
+TYPE = "DATE_DERIVE"
+LABEL = "접수-보고 TAT 계산"
+NAME = "TAT분"
+KIND = "diff_minutes"
+START = "tag:RECEIVED_AT"
+END = "tag:RESULT_TIME"
+TAGS = ["TAT", "DURATION", "NUM"]
+ROUND = 1
+
+[ACTIONS.ADD_RESULT_RATIO]
+TYPE = "DERIVE"
+LABEL = "참고상한 대비 결과 비율"
+NAME = "상한대비비율"
+EXPR = "{tag:RESULT} / {tag:REF_HIGH}"
+TAGS = ["RATIO", "NUM"]
+ROUND = 3
+
+[ACTIONS.ADD_AGE_GROUP]
+TYPE = "BIN"
+LABEL = "연령군 생성"
+COLUMN = "tag:AGE(baseline)"
+NAME = "연령군"
+BINS = [0, 20, 40, 60, 120]
+LABELS = ["0-19", "20-39", "40-59", "60+"]
+TAGS = ["AGE_GROUP", "CATEGORY"]
+
+[ACTIONS.JOIN_INSURANCE]
+TYPE = "JOIN"
+LABEL = "환자ID 기반 보험유형 결합"
+RIGHT = "tutorial/16_hands_on_guide/demographics.data.tame"
+ON = ["tag:ID(patient)"]
+SELECT = ["tag:INSURANCE"]
+HOW = "left"
+
+[ACTION_PIPELINES]
+CLEAN = ["DEDUP_SAMPLE_ITEM", "ADD_TAT_MINUTES", "ADD_RESULT_RATIO", "ADD_AGE_GROUP", "JOIN_INSURANCE"]
+
+[ANALYSES.RESULT_SUMMARY]
+LABEL = "결과 요약통계"
+PLUGIN = "CHEMISTRY_ANALYSIS"
+MODE = "RESULT_SUMMARY"
+
+[ANALYSES.TAT_BY_TEST]
+LABEL = "검사항목별 TAT"
+PLUGIN = "CHEMISTRY_ANALYSIS"
+MODE = "TAT_BY_TEST"
+
+[ANALYSES.REFERENCE_INTERVAL]
+LABEL = "참고구간 후보"
+PLUGIN = "REFERENCE_INTERVAL"
+
+[ANALYSES.ABNORMAL_FLAG]
+LABEL = "참고치 대비 H/L/N"
+PLUGIN = "ABNORMAL_FLAG"
+MODE = "FLAG"
+
+[ANALYSES.REPORT]
+LABEL = "표+차트 docx 보고서"
+PLUGIN = "COMBINED_CHEMISTRY_REPORT"
+REPORT_PATH = "tutorial/16_hands_on_guide/outputs/combined_report.docx"
+</META>

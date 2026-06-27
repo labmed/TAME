@@ -10,6 +10,7 @@ import pandas as pd
 from .analysis import comparator_harmonization_preview, comparator_parts_series
 from .cellstate import STATE_VALUE, cell_state
 from .models import ColumnSpec, TameDataset
+from .pandas_compat import concat_dataframes
 from .tags import build_header, merge_tags
 
 
@@ -31,12 +32,12 @@ def anonymize_dataset(
     selected_hash = [
         column
         for column in dataset.columns
-        if column.name in hash_columns or (hash_tags and column.has_any_tag(hash_tags))
+        if column.name in hash_columns or (hash_tags and dataset.column_has_any_tag(column, hash_tags))
     ]
     selected_drop = [
         column
         for column in dataset.columns
-        if column.name in drop_columns or (drop_tags and column.has_any_tag(drop_tags))
+        if column.name in drop_columns or (drop_tags and dataset.column_has_any_tag(column, drop_tags))
     ]
 
     drop_names = {column.name for column in selected_drop}
@@ -117,10 +118,10 @@ def sample_dataset(
         sampled = _sample_frame(working, rows=rows, frac=frac, seed=seed, replace=replace)
     else:
         parts: list[pd.DataFrame] = []
-        for offset, (_, group) in enumerate(working.groupby(group_columns, sort=False, dropna=False)):
+        for offset, (_, group) in enumerate(working.groupby(group_columns, sort=False, dropna=False, observed=False)):
             group_seed = None if seed is None else seed + offset
             parts.append(_sample_frame(group, rows=rows, frac=frac, seed=group_seed, replace=replace))
-        sampled = pd.concat(parts, axis=0) if parts else working.iloc[0:0].copy()
+        sampled = concat_dataframes(parts, axis=0) if parts else working.iloc[0:0].copy()
 
     sampled = sampled.sort_values("__sample_order__", kind="stable").drop(columns=["__sample_order__"]).reset_index(drop=True)
     return dataset.replace(df=sampled)
@@ -141,7 +142,7 @@ def split_comparator_columns(
 
     for column in dataset.columns:
         matches_name = not target_columns or column.name in target_columns
-        matches_tag = not target_tags or column.has_any_tag(target_tags)
+        matches_tag = not target_tags or dataset.column_has_any_tag(column, target_tags)
         if matches_name and matches_tag:
             selected.append(column)
 
@@ -163,7 +164,6 @@ def split_comparator_columns(
         value_tags = _comparator_value_tags(column)
         new_columns.append(
             ColumnSpec(
-                index=len(new_columns),
                 original_header=build_header(op_name, op_tags),
                 name=op_name,
                 tags=op_tags,
@@ -171,7 +171,6 @@ def split_comparator_columns(
         )
         new_columns.append(
             ColumnSpec(
-                index=len(new_columns),
                 original_header=build_header(value_name, value_tags),
                 name=value_name,
                 tags=value_tags,
@@ -185,6 +184,57 @@ def split_comparator_columns(
     normalized_columns = _reindex_columns(new_columns)
     frame = frame[[column.name for column in normalized_columns]]
     return dataset.replace(df=frame, columns=normalized_columns)
+
+
+def fix_num_comparator_values(
+    dataset: TameDataset,
+    *,
+    handling: str = "delete",
+    target_columns: Iterable[str] | None = None,
+) -> tuple[TameDataset, pd.DataFrame]:
+    mode = str(handling or "delete").strip().lower()
+    if mode not in {"delete", "value"}:
+        raise ValueError("handling must be one of: delete, value")
+
+    requested = {str(name) for name in (target_columns or ()) if str(name).strip()}
+    selected = [
+        column
+        for column in dataset.columns
+        if dataset.column_has_tag(column, "NUM")
+        and not dataset.column_has_tag(column, "<NUM>")
+        and (not requested or column.name in requested)
+    ]
+
+    frame = dataset.df.copy()
+    drop_mask = pd.Series(False, index=frame.index)
+    rows: list[dict[str, object]] = []
+
+    for column in selected:
+        parts = comparator_parts_series(dataset, column)
+        bounded = parts["comparator_code"].isin(["LT", "LE", "GT", "GE"])
+        affected = int(bounded.sum())
+        if affected == 0:
+            continue
+
+        if mode == "delete":
+            drop_mask |= bounded
+        else:
+            frame.loc[bounded, column.name] = parts.loc[bounded, "numeric_value"].map(_format_threshold)
+
+        rows.append(
+            {
+                "column": column.name,
+                "handling": mode,
+                "affected_cells": affected,
+                "affected_rows": affected if mode == "value" else int(drop_mask.sum()),
+            }
+        )
+
+    if mode == "delete" and bool(drop_mask.any()):
+        frame = frame.loc[~drop_mask].reset_index(drop=True)
+
+    table = pd.DataFrame(rows, columns=["column", "handling", "affected_cells", "affected_rows"])
+    return dataset.replace(df=frame), table
 
 
 def harmonize_comparator_thresholds(
@@ -208,7 +258,7 @@ def harmonize_comparator_thresholds(
         column.name
         for column in dataset.columns
         if (not target_columns or column.name in target_columns)
-        and (not target_tags or column.has_any_tag(target_tags))
+        and (not target_tags or dataset.column_has_any_tag(column, target_tags))
     }
     if selected_columns:
         preview = preview.loc[preview["result_column"].isin(selected_columns)].copy()
@@ -217,6 +267,7 @@ def harmonize_comparator_thresholds(
 
     frame = dataset.df.copy()
     changed_rows: list[int] = []
+    item_column = _item_column(dataset)
 
     for row in preview.itertuples(index=False):
         result_column = str(row.result_column)
@@ -232,12 +283,8 @@ def harmonize_comparator_thresholds(
         family = str(row.family)
 
         mask = pd.Series(True, index=frame.index)
-        if "item" in preview.columns and row.item not in (None, "") and "검사항목명" in frame.columns:
-            mask &= frame["검사항목명"] == row.item
-        elif "item" in preview.columns and row.item not in (None, ""):
-            item_column = dataset.first_column_with_tag("ITEM")
-            if item_column is not None:
-                mask &= frame[item_column.name] == row.item
+        if "item" in preview.columns and _has_item_value(row.item) and item_column is not None:
+            mask &= frame[item_column.name] == row.item
 
         bounded_codes = {"LT", "LE"} if family == "LT" else {"GT", "GE"}
         bounded_mask = mask & comparator_codes.isin(bounded_codes)
@@ -304,7 +351,7 @@ def _sample_group_columns(
             names.append(name)
 
     if requested_tags:
-        tagged_names = [column.name for column in dataset.columns if column.has_any_tag(requested_tags)]
+        tagged_names = [column.name for column in dataset.columns if dataset.column_has_any_tag(column, requested_tags)]
         if not tagged_names:
             raise KeyError(f"No grouping columns found for tags: {list(requested_tags)}")
         for name in tagged_names:
@@ -345,12 +392,26 @@ def _comparator_value_tags(column: ColumnSpec) -> tuple[str, ...]:
     return merge_tags(preserved, ["NUM"])
 
 
+def _item_column(dataset: TameDataset) -> ColumnSpec | None:
+    return dataset.first_column_with_tag("TESTNAME") or dataset.first_column_with_tag("ITEM")
+
+
+def _has_item_value(value: object) -> bool:
+    if value is None:
+        return False
+    try:
+        if bool(pd.isna(value)):
+            return False
+    except Exception:
+        pass
+    return str(value) != ""
+
+
 def _reindex_columns(columns: list[ColumnSpec]) -> list[ColumnSpec]:
     normalized: list[ColumnSpec] = []
     for index, column in enumerate(columns):
         normalized.append(
             ColumnSpec(
-                index=index,
                 original_header=column.original_header,
                 name=column.name,
                 tags=column.tags,

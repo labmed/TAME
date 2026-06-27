@@ -1,0 +1,21 @@
+<META>
+[INFO]
+DESCRIPTION = "Split a compound sex/age source column and tag the derived columns."
+
+[ACTIONS.SPLIT_SEX_AGE]
+TYPE = "COLUMN.SPLIT"
+COLUMN = "tag:SEX"
+INTO = ["sex_split", "age_split"]
+SEP = "/"
+DROP_SOURCE = true
+
+[ACTIONS.SPLIT_SEX_AGE.COLUMN_TAGS]
+sex_split = ["SEX", "CATEGORY"]
+age_split = ["AGE"]
+</META>
+<DATA>
+[[ID(patient)::STR]]patient_id	[[SEX::AGE::STR]]sex_age	[[TESTNAME::CATEGORY]]test	[[RESULT::NUM]]result
+P001	M/45	GLU	91
+P002	F/53	GLU	108
+P003	male/2mo	CRP	0.8
+</DATA>

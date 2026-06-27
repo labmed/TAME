@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tametools"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tag-first TAME tools scaffold"
 requires-python = ">=3.10"
 dependencies = [
   "pandas",
+  "numpy",
   "openpyxl",
   "tomli",
 ]
@@ -16,6 +17,24 @@ dependencies = [
 [project.optional-dependencies]
 parquet = [
   "pyarrow",
+]
+stats = [
+  "scipy",
+]
+report = [
+  "matplotlib",
+  "python-docx",
+]
+web = [
+  "fastapi",
+  "uvicorn",
+  "python-multipart",
+]
+windows = [
+  # PyInstaller 6.0+ required: the .spec files pass Analysis(optimize=...), a
+  # 6.x-only kwarg, and 6.x dropped the pkg_resources import that breaks under
+  # setuptools>=81.
+  "pyinstaller>=6",
 ]
 
 [project.scripts]
@@ -26,3 +45,5 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# 기본 플러그인은 tametools.plugins 패키지에 들어 있으며, plugin_base.manager 가 파일 경로로 로드한다.

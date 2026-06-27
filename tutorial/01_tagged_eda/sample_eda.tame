@@ -10,7 +10,7 @@ CRR = "VALUE"
 DEFAULT = ["VALIDATE", "DESCRIBE", "EDA"]
 </META>
 <DATA>
-[[ID::STR]]등록번호	[[GENDER]]성별	[[AGE]]나이	[[ITEM]]검사항목명	[[RESULT::<NUM>]]보고값	[[BY]]진료과
+[[ID::STR]]등록번호	[[SEX]]성별	[[AGE]]나이	[[ITEM]]검사항목명	[[RESULT::<NUM>]]보고값	[[BY]]진료과
 P0001	F	32	AST	25	IM
 P0002	남	2m	AST	<3	GS
 P0003	X	bad	ALT	positive	IM

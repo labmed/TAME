@@ -6,7 +6,14 @@ from typing import Iterable
 
 
 SIMPLE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-TAG_TOKEN_RE = re.compile(r"^[A-Za-z0-9<>()%]+(?:_[A-Za-z0-9<>()%]+)*$")
+# A tag token is an identifier (letters/digits/`<>%`, optionally `_`-joined),
+# optionally followed by a parenthesized qualifier such as ID(patient),
+# DATE(%Y-%m-%d), or DATETIME(%Y-%m-%d %H:%M:%S). The qualifier may contain
+# format characters (`-`, `:`, space, `.`, `,`) that are not allowed in the bare
+# identifier part.
+TAG_TOKEN_RE = re.compile(
+    r"^[A-Za-z0-9<>%]+(?:_[A-Za-z0-9<>%]+)*(?:\([^()]*\))?$"
+)
 ESCAPE_CHAR = "\\"
 TAG_BLOCK_OPEN = "[["
 TAG_BLOCK_CLOSE = "]]"
@@ -20,11 +27,29 @@ def normalize_tag(tag: str) -> str:
     if text.startswith("<") and text.endswith(">"):
         return f"<{normalize_tag(text[1:-1])}>"
 
-    if "(" in text and text.endswith(")"):
-        prefix, suffix = text.split("(", 1)
-        return f"{prefix.upper()}({suffix}"
+    parts = _parameterized_tag_parts(text)
+    if parts is not None:
+        prefix, qualifier = parts
+        if SIMPLE_KEY_RE.match(qualifier):
+            qualifier = qualifier.lower()
+        return f"{prefix.upper()}({qualifier})"
 
     return text.upper()
+
+
+def parameterized_tag_parts(tag: str) -> tuple[str, str] | None:
+    """Return normalized ``(base, qualifier)`` for tags such as ``ID(patient)``."""
+    return _parameterized_tag_parts(normalize_tag(tag))
+
+
+def _parameterized_tag_parts(text: str) -> tuple[str, str] | None:
+    if "(" not in text or not text.endswith(")"):
+        return None
+    prefix, suffix = text.split("(", 1)
+    qualifier = suffix[:-1]
+    if not prefix or qualifier == "":
+        return None
+    return prefix.upper(), qualifier
 
 
 def merge_tags(*tag_groups: Iterable[str]) -> tuple[str, ...]:
@@ -56,6 +81,8 @@ def build_header(name: str, tags: Iterable[str]) -> str:
     merged = merge_tags(tags)
     if not merged:
         return name
+    if str(name) == tag_only_name(merged):
+        return str(name)
     return f"{TAG_BLOCK_OPEN}{'::'.join(merged)}{TAG_BLOCK_CLOSE}{name}"
 
 
@@ -89,7 +116,14 @@ def _parse_bracketed_header(text: str) -> tuple[str, tuple[str, ...]] | None:
     if not _is_tag_block(raw_tags):
         return None
     tags = [normalize_tag(tag) for tag in raw_tags.split("::") if tag]
+    if raw_name == "":
+        raw_name = tag_only_name(tags)
     return raw_name, tuple(tags)
+
+
+def tag_only_name(tags: Iterable[str]) -> str:
+    merged = merge_tags(tags)
+    return f"{TAG_BLOCK_OPEN}{'::'.join(merged)}{TAG_BLOCK_CLOSE}"
 
 
 def _parse_legacy_header(text: str) -> tuple[str, tuple[str, ...]]:

@@ -17,7 +17,7 @@
 이미지를 폴더로 추출하고 경로형 데이터셋 저장:
 
 ```bash
-python3 -m tametools extract-images \
+tametools extract-images \
   tutorial/08_image_columns/sample_images_embedded.tame \
   --output-dir tutorial/08_image_columns/extracted \
   --output tutorial/08_image_columns/sample_images_paths.tame
@@ -26,7 +26,7 @@ python3 -m tametools extract-images \
 경로형 데이터셋을 다시 base64 내장형으로 변환:
 
 ```bash
-python3 -m tametools embed-images \
+tametools embed-images \
   tutorial/08_image_columns/sample_images_paths.tame \
   --output tutorial/08_image_columns/sample_images_embedded_roundtrip.tame
 ```
