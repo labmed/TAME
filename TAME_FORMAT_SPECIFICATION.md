@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This document defines the TAME file format as a sectioned text container for tagged tabular data and its companion storage forms. 
+This document defines the TAME file format as a sectioned text container for tagged tabular data and its companion storage forms.
 
 ## 2. File Classes
 
@@ -79,12 +79,16 @@ Common namespaces used by the current format/toolchain are:
 - `META[SETTINGS]`
 - `META[TAGS]`
 - `META[DATA]`
+- `META[CATEGORIES.<vocab>]`
+- `META[DATETIME]`
 - `META[WORKS]`
 - `META[SUBWORKS]`
 - `META[PIPELINES]`
 - `META[FUNCTIONS.<name>]`
 - `META[PLUGINS]`
 - `META[USE]`
+- `META[[LOG]]`
+- `META[INTEGRITY]`
 
 Unknown keys MAY be present and MUST be preserved as TOML content by format-aware tooling when practical.
 
@@ -119,7 +123,7 @@ Examples:
 [[RESULT::NUM]]result
 [[RESULT::<NUM>]]reported_value
 [[AGE]]age
-[[GENDER]]sex
+[[SEX]]sex
 [[HOSPITAL_ID]]hospital_code
 [[IMAGE::B64]]thumbnail
 ```
@@ -168,7 +172,7 @@ Example:
 ```toml
 [TAGS]
 "result" = ["RESULT", "NUM"]
-"sex" = ["GENDER"]
+"sex" = ["SEX"]
 "age" = ["AGE"]
 ```
 
@@ -253,9 +257,10 @@ The format does not limit tags to a fixed vocabulary, but the following tags are
 - `TESTNAME`
 - `ITEM`
 - `ID`
+- `NAME`
 - `HOSPITAL_ID`
 - `AGE`
-- `GENDER`
+- `SEX`
 - `BY`
 - `SHEET`
 - `IMAGE`
@@ -263,15 +268,19 @@ The format does not limit tags to a fixed vocabulary, but the following tags are
 - `REF_HIGH`
 - `COMMENT`
 
+`SEX` is the canonical sex tag (canonical values `male`, `female`, `other`, `unknown`).
+
 ### 11.2 Type and Storage Tags
 
-- `NUM`
-- `<NUM>`
-- `STR`
-- `TXT`
-- `CAT`
-- `B64`
-- `PATH`
+- `NUM` — strict numeric
+- `<NUM>` — comparator numeric (may include `<`, `<=`, `>`, `>=`, `=`)
+- `STR` — string / identifier (preserves leading zeros)
+- `CATEGORY` — categorical column (short alias: `CAT`)
+- `DATE` — calendar date, normalized to ISO 8601 `YYYY-MM-DD`
+- `DATETIME` — date and time, normalized to ISO 8601 `YYYY-MM-DDTHH:MM:SS`
+- `TIME` — time of day, normalized to `HH:MM:SS`
+- `B64` — Base64-embedded binary (with `IMAGE`)
+- `PATH` — external file path (with `IMAGE`)
 
 ### 11.3 Examples
 
@@ -356,6 +365,75 @@ MODULES = ["tutorial.plugin_examples.example_count_plugin"]
 DEFAULT = ["package.module"]
 ```
 
+### 12.6 `META[CATEGORIES.<vocab>]`
+
+User-defined category vocabularies that normalize institution-specific spellings to canonical values. A categorical column references a vocabulary with a `CATEGORY` tag plus the vocabulary name, e.g. `[[CATEGORY::RESULT_QUAL]]판정`.
+
+Fields:
+
+- `VALUES` — allowed canonical values
+- `MAP` — synonym-to-canonical mapping (matched case-insensitively, ignoring surrounding whitespace)
+- `STRICT` — if `true`, values that do not resolve to an allowed value are reported by `validate`
+
+```toml
+[CATEGORIES.RESULT_QUAL]
+VALUES = ["POSITIVE", "NEGATIVE", "EQUIVOCAL"]
+MAP = { "양성" = "POSITIVE", "+" = "POSITIVE", "음성" = "NEGATIVE", "-" = "NEGATIVE" }
+STRICT = true
+```
+
+`normalize-categories` rewrites matched cells to their canonical values.
+
+### 12.7 `META[DATETIME]`
+
+Optional input formats used when normalizing `DATE`, `DATETIME`, and `TIME` columns to ISO 8601. If absent, formats are inferred, and Excel serial numbers are recognized.
+
+```toml
+[DATETIME]
+FORMATS = ["%Y/%m/%d %H:%M", "%d-%b-%Y"]
+```
+
+`normalize-datetimes` rewrites parseable values; unparseable values are preserved and reported.
+
+### 12.8 `META[[LOG]]` (Provenance)
+
+An array of log-entry tables recording how the artifact was produced. Each pipeline step, action, or CLI command appends an entry; chaining preserves a parent artifact's log.
+
+Entry fields:
+
+- `TIMESTAMP` — ISO 8601 timestamp
+- `OPERATION` — operation name
+- `TOOL` — producing tool
+- `PARENT` — parent artifact (optional)
+- `[LOG.PARAMS]` — operation parameters (optional)
+
+```toml
+[[LOG]]
+TIMESTAMP = "2026-06-27T00:00:00+00:00"
+OPERATION = "CLI:RUN-PLUGIN"
+TOOL = "tametools"
+
+[LOG.PARAMS]
+command = "tametools run-plugin data.tame REFERENCE_INTERVAL --output ri.tame"
+```
+
+`tametools logs FILE` lists the log; `tametools verify FILE` re-runs the declared pipeline and checks that the content hash matches.
+
+### 12.9 `META[INTEGRITY]` (Tamper-evidence)
+
+A content-hash stamp for tamper detection.
+
+- `CONTENT_HASH` — deterministic hash over tagged headers and data (excludes `META`, so timestamps do not affect it)
+- `ALGO` — hash-algorithm identifier
+
+```toml
+[INTEGRITY]
+CONTENT_HASH = "a70ddddbeaac578f"
+ALGO = "sha256-16"
+```
+
+`tametools stamp` writes the stamp; `tametools check-integrity` recomputes and compares, detecting any modified cell.
+
 ## 13. `.xlsx` Mapping
 
 ### 13.1 Control Sheets
@@ -380,7 +458,7 @@ Data-sheet discovery follows these rules:
 When multiple data sheets are loaded into one dataset:
 
 - rows from all sheets are combined into a single `DATA` table
-- a provenance column tagged as `[[SHEET::STR]]시트명` is added
+- a provenance column tagged as `[[SHEET::STR]]sheet_name` is added
 
 ### 13.4 Multi-Sheet Restoration
 
@@ -409,7 +487,7 @@ NAME = "example"
 "result" = ["RESULT", "<NUM>"]
 </META>
 <DATA>
-[[ID::STR]]record_id	[[GENDER]]sex	[[AGE]]age	[[RESULT::<NUM>]]result
+[[ID::STR]]record_id	[[SEX]]sex	[[AGE]]age	[[RESULT::<NUM>]]result
 P001	F	32	<3
 </DATA>
 ```
