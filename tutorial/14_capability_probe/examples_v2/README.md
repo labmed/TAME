@@ -70,4 +70,3 @@ python3 tutorial/14_capability_probe/examples_v2/run_all_v2.py
    `PIVOT_CONTEXT`가 있는 wide RESULT를 반복 처리하지만, 다른 분석 플러그인은 아직 첫 RESULT 중심이다.
 5. **개선됨:** `COLUMN = "tag:ID"`처럼 단일 컬럼 선택자가 여러 컬럼과 매칭되면 이제 에러가 나며,
    `TAGS = ["ID"]`처럼 다중 선택 문법은 여러 컬럼을 계속 선택한다.
-

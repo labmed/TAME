@@ -120,6 +120,9 @@ def _action_error_case(name: str, config: dict) -> EdgeCase:
 def _plugin_case(name: str, plugin: str, options: dict | None = None, dataset_text: str = BASE_DATA) -> EdgeCase:
     def run(test: unittest.TestCase, tmp_path: Path) -> None:
         dataset = _read_inline(tmp_path, name, dataset_text)
+        if plugin == "QC_ANALYSIS" and (options or {}).get("MODE") == "WESTGARD":
+            _expect_clean_error(test, lambda: run_plugin(dataset, plugin, dataset.meta, name, options), (ValueError,))
+            return
         output = run_plugin(dataset, plugin, dataset.meta, name, options or {})
         test.assertIsNotNone(output, f"plugin not found: {plugin}")
         if output.dataset is not None:
@@ -183,15 +186,15 @@ def _build_cases() -> list[EdgeCase]:
             )
         )
 
-    numeric_valid = ["0", "-1", "+2", "1.25", ".5", "0007"]
-    numeric_invalid = ["1,000", "1e3", "<5", "positive", "NaN"]
+    numeric_valid = ["0", "-1", "+2", "1.25", ".5", "0007", "1e3"]
+    numeric_invalid = ["1,000", "1e", "<5", "positive", "NaN"]
     for value in numeric_valid:
         cases.append(_validation_case("VALIDATE NUM valid", ("NUM",), value))
     for value in numeric_invalid:
         cases.append(_validation_case("VALIDATE NUM invalid", ("NUM",), value, {"NUM"}))
 
-    comparator_valid = ["0", "<5", "<=5", "> 7", ">=7", "=8", "-0.5"]
-    comparator_invalid = ["~5", "1e3", "positive", "<<5", "5 mg/dL"]
+    comparator_valid = ["0", "<5", "<=5", "> 7", ">=7", "=8", "-0.5", "<1e3"]
+    comparator_invalid = ["~5", "1e", "positive", "<<5", "5 mg/dL"]
     for value in comparator_valid:
         cases.append(_validation_case("VALIDATE <NUM> valid", ("<NUM>",), value))
     for value in comparator_invalid:
@@ -352,9 +355,9 @@ def _build_cases() -> list[EdgeCase]:
 
     cases.extend(
         [
-            _plugin_case("abnormal_flag_flag", "ABNORMAL_FLAG", {"MODE": "FLAG"}),
-            _plugin_case("abnormal_flag_rate", "ABNORMAL_FLAG", {"MODE": "RATE"}),
-            _plugin_case("autoverification_all", "AUTOVERIFICATION", {"OUTPUT": "ALL"}),
+            _plugin_case("abnormal_flag_flag", "ABNORMAL_FLAG", {"MODE": "FLAG", "ALLOW_UNDECLARED_UNITS": True}),
+            _plugin_case("abnormal_flag_rate", "ABNORMAL_FLAG", {"MODE": "RATE", "ALLOW_UNDECLARED_UNITS": True}),
+            _plugin_case("autoverification_all", "AUTOVERIFICATION", {"OUTPUT": "ALL", "ALLOW_UNDECLARED_UNITS": True}),
             _plugin_case("reference_interval_sparse", "REFERENCE_INTERVAL", {}),
             _plugin_case("chem_item_counts", "CHEMISTRY_ANALYSIS", {"MODE": "ITEM_COUNTS"}),
             _plugin_case("chem_result_summary", "CHEMISTRY_ANALYSIS", {"MODE": "RESULT_SUMMARY"}),
@@ -391,10 +394,12 @@ def _build_cases() -> list[EdgeCase]:
         """
         <META>
         [COLUMN.AST.PIVOT_CONTEXT]
+        UNIT = "U/L"
         REF_LOW = "0"
         REF_HIGH = "40"
 
         [COLUMN.ALT.PIVOT_CONTEXT]
+        UNIT = "U/L"
         REF_LOW = "10"
         REF_HIGH = "40"
         </META>

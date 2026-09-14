@@ -514,3 +514,13 @@ record_id	sex	age	result
 P001	F	32	<3
 </DATA>
 ```
+
+## 17. tametools 0.4.0 workflow extensions
+
+The following application-level declarations complement this container specification:
+
+- [Analysis plans](docs/TAME_ANALYSIS_PLAN_V1.md)
+- [Measurement context and units](docs/TAME_MEASUREMENT_TAGS.md)
+- [Source-specific category and age declarations](docs/INIT_SEMANTICS_KO.md)
+- [Processing history](docs/ANALYSIS_LOG_GUIDE_KO.md)
+- [Reference-interval settings](docs/REFERENCE_INTERVAL_EP28_GUIDE_KO.md)

@@ -65,13 +65,22 @@ def write_tame(
     include_schema: bool = True,
     include_job: bool = True,
     tag_storage: str = "preserve",
+    standardize_sex_values: bool = True,
 ) -> None:
     path = Path(path)
-    dataset = standardize_sex_dataset(dataset)
+    before_export = dataset
+    if standardize_sex_values:
+        dataset = standardize_sex_dataset(dataset)
     dataset = _dataset_for_tag_storage(dataset, tag_storage)
+    dataset = _record_export_preparation(before_export, dataset, standardize_sex_values, tag_storage)
     include_header_tags = _include_header_tags(tag_storage)
     sections = _control_sections(dataset, include_schema=include_schema, include_job=include_job)
-    sections.append(f"<DATA>\n{_write_tsv(dataset, include_tags=include_header_tags)}\n</DATA>")
+    data_text = _write_tsv(dataset, include_tags=include_header_tags)
+    if ci_get(dataset.meta, "INTEGRATION_RESULT", None) is not None:
+        marker = re.compile(r"<\s*/?\s*(?:SCHEMA|JOB|META|DATA)\s*>", re.IGNORECASE)
+        if any(marker.search(text) for text in [data_text, dumps_toml(dataset.meta), dumps_toml(dataset.schema), dumps_toml(dataset.job)]):
+            raise ValueError("Integrated content contains reserved TAME section markers; use .xlsx or review the source declaration")
+    sections.append(f"<DATA>\n{data_text}\n</DATA>")
 
     path.write_text("\n".join(sections) + "\n", encoding="utf-8")
 
@@ -190,13 +199,37 @@ def write_xlsx(
     include_schema: bool = True,
     include_job: bool = True,
     tag_storage: str = "preserve",
+    standardize_sex_values: bool = True,
 ) -> None:
-    dataset = standardize_sex_dataset(dataset)
+    if ci_get(dataset.meta, "INTEGRATION_RESULT", None) is not None:
+        # Refuse Excel's silent string truncation for the preserved source-row payload.
+        values = (str(serialize_cell(v)) for row in dataset.df.itertuples(index=False, name=None) for v in row)
+        if any(len(v.encode("utf-16-le")) // 2 > 32767 for v in values) or any(len(line.encode("utf-16-le")) // 2 > 32767 for line in dumps_toml(dataset.meta).splitlines()):
+            raise ValueError("Integrated provenance exceeds Excel's cell text limit; save as .tame instead")
+    before_export = dataset
+    if standardize_sex_values:
+        dataset = standardize_sex_dataset(dataset)
     dataset = _dataset_for_tag_storage(dataset, tag_storage)
+    dataset = _record_export_preparation(before_export, dataset, standardize_sex_values, tag_storage)
     include_header_tags = _include_header_tags(tag_storage)
     workbook = openpyxl.Workbook()
     sheet_column = dataset.first_column_with_tag("SHEET")
-    if sheet_column is None:
+    from .provenance import log_entries
+    preserve_ledger_layout = any(e.get('SCHEMA_VERSION') == 2 for e in log_entries(dataset))
+    if sheet_column is not None and preserve_ledger_layout:
+        # A canonical DATA sheet preserves row/column order and source cell states.
+        # Source sheets remain convenient views; read_xlsx reads canonical DATA.
+        data_sheet = workbook.active
+        data_sheet.title = 'DATA'
+        _write_data_sheet(data_sheet, dataset, include_tags=include_header_tags)
+        used_names = {'DATA', 'META', 'SCHEMA', 'JOB'}
+        for raw_name, group_dataset in _sheet_groups(dataset, sheet_column.name):
+            view_name = 'Source_' + raw_name if DATA_SHEET_RE.match(raw_name) else raw_name
+            sheet_name = _excel_sheet_name(view_name, used_names=used_names)
+            used_names.add(sheet_name)
+            sheet = workbook.create_sheet(sheet_name)
+            _write_data_sheet(sheet, group_dataset, include_tags=include_header_tags)
+    elif sheet_column is None:
         data_sheet = workbook.active
         data_sheet.title = "DATA"
         _write_data_sheet(data_sheet, dataset, include_tags=include_header_tags)
@@ -661,6 +694,8 @@ def _write_text_sheet(workbook: openpyxl.Workbook, sheet_name: str, text: str) -
     else:
         sheet = workbook.create_sheet(sheet_name)
     for row_idx, line in enumerate(text.splitlines(), start=1):
+        if len(line.encode('utf-16-le')) // 2 > 32767:
+            raise ValueError(f'{sheet_name} contains a record exceeding Excel cell limits; save as .tame to preserve the full history')
         sheet.cell(row=row_idx, column=1, value=line)
 
 
@@ -735,13 +770,19 @@ def _augment_multisheet_meta(meta: dict[str, Any], sheet_names: list[str], *, so
 
 def _write_data_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet, dataset: TameDataset, *, include_tags: bool = True) -> None:
     headers = dataset.tagged_headers() if include_tags else [column.name for column in dataset.columns]
+    integrated = ci_get(dataset.meta, "INTEGRATION_RESULT", None) is not None
     for col_idx, header in enumerate(headers, start=1):
-        sheet.cell(row=1, column=col_idx, value=header)
+        cell = sheet.cell(row=1, column=col_idx, value=header)
+        if integrated:
+            cell.data_type = "s"
 
     cfg = token_config(_cell_settings(dataset.meta))
     for row_idx, row in enumerate(dataset.df.itertuples(index=False), start=2):
         for col_idx, value in enumerate(row, start=1):
-            sheet.cell(row=row_idx, column=col_idx, value=_xlsx_cell_value(value, cfg))
+            cell = sheet.cell(row=row_idx, column=col_idx, value=_xlsx_cell_value(value, cfg))
+            if integrated and isinstance(cell.value, str):
+                # Comparator '=' and source identifiers are data, never Excel formulas.
+                cell.data_type = "s"
 
 
 def _sheet_groups(dataset: TameDataset, sheet_column_name: str) -> list[tuple[str, TameDataset]]:
@@ -776,3 +817,15 @@ def _excel_sheet_name(raw_name: str, *, used_names: set[str]) -> str:
         candidate = (text[: 31 - len(suffix_text)] + suffix_text).strip() or f"DATA{suffix_text}"
         suffix += 1
     return candidate
+
+
+def _record_export_preparation(before, prepared, standardize_sex_values, tag_storage):
+    from .provenance import append_log_entry, log_entries
+    from .provenance_audit import artifact_descriptor
+    if any(e.get('SCHEMA_VERSION') == 2 for e in log_entries(before)):
+        first, second = artifact_descriptor(before), artifact_descriptor(prepared)
+        if first['ARTIFACT_ID'] != second['ARTIFACT_ID']:
+            prepared = append_log_entry(prepared, action='EXPORT_PREPARATION', input_dataset=before,
+                parameters={'standardize_sex_values': standardize_sex_values, 'tag_storage': tag_storage},
+                message='저장 형식에 적용되는 표준화·태그 설정을 기록했습니다.')
+    return prepared

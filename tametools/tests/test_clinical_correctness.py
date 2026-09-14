@@ -99,7 +99,8 @@ class NumericalCorrectnessTest(unittest.TestCase):
             "AST\tA\tS1\t10\nAST\tB\tS1\t10\nAST\tA\tS2\t20\nAST\tB\tS2\t20\n"
             "AST\tA\tS3\t30\nAST\tB\tS3\t30\nAST\tA\tS4\t40\nAST\tB\tS4\t40\n</DATA>"
         )
-        row = run_plugin(identity, "METHOD_COMPARISON", identity.meta, "m", {}).table.iloc[0]
+        identity.meta["COLUMN"] = {"r": {"UNIT": "U/L"}}
+        row = run_plugin(identity, "METHOD_COMPARISON", identity.meta, "m", {"METHOD_A": "A", "METHOD_B": "B"}).table.iloc[0]
         self.assertAlmostEqual(float(row["pb_slope"]), 1.0, places=6)
         self.assertAlmostEqual(float(row["pb_intercept"]), 0.0, places=6)
         self.assertAlmostEqual(float(row["bias"]), 0.0, places=6)
@@ -110,7 +111,8 @@ class NumericalCorrectnessTest(unittest.TestCase):
             "AST\tA\tS1\t10\nAST\tB\tS1\t15\nAST\tA\tS2\t20\nAST\tB\tS2\t25\n"
             "AST\tA\tS3\t30\nAST\tB\tS3\t35\nAST\tA\tS4\t40\nAST\tB\tS4\t45\n</DATA>"
         )
-        row = run_plugin(offset, "METHOD_COMPARISON", offset.meta, "m", {}).table.iloc[0]
+        offset.meta["COLUMN"] = {"r": {"UNIT": "U/L"}}
+        row = run_plugin(offset, "METHOD_COMPARISON", offset.meta, "m", {"METHOD_A": "A", "METHOD_B": "B"}).table.iloc[0]
         self.assertAlmostEqual(float(row["pb_slope"]), 1.0, places=6)
         self.assertAlmostEqual(float(row["pb_intercept"]), 5.0, places=6)
         self.assertAlmostEqual(float(row["bias"]), 5.0, places=6)  # bias = method_b - method_a

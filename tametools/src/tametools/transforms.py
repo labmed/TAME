@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from pathlib import Path
 import re
 from typing import Iterable
@@ -107,6 +108,14 @@ def sample_dataset(
         if frac > 1 and not replace:
             raise ValueError("frac greater than 1 requires replace=True.")
 
+    from .provenance import record_effective_parameters, append_log_entry
+    generated_seed = seed is None
+    if generated_seed:
+        seed = secrets.randbelow(2**31)
+    effective = dict(ROWS=rows, FRAC=frac, SEED=seed, SEED_GENERATED=generated_seed,
+        BY_COLUMNS=list(by_columns or []), BY_TAGS=list(by_tags or []), REPLACE=bool(replace),
+        RNG='pandas.DataFrame.sample / numpy RandomState; group offset added to seed')
+    in_operation = record_effective_parameters(effective)
     frame = dataset.df.copy()
     if frame.empty:
         return dataset.replace(df=frame.reset_index(drop=True))
@@ -124,7 +133,12 @@ def sample_dataset(
         sampled = concat_dataframes(parts, axis=0) if parts else working.iloc[0:0].copy()
 
     sampled = sampled.sort_values("__sample_order__", kind="stable").drop(columns=["__sample_order__"]).reset_index(drop=True)
-    return dataset.replace(df=sampled)
+    transformed = dataset.replace(df=sampled)
+    if not in_operation:
+        transformed = append_log_entry(transformed, action='SAMPLE', input_dataset=dataset,
+            parameters=effective, effective_parameters=effective,
+            message=f'표본 추출: {len(dataset.df)}행 → {len(sampled)}행; seed={seed}')
+    return transformed
 
 
 def split_comparator_columns(

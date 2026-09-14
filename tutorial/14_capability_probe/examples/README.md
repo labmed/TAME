@@ -100,6 +100,5 @@ tametools run-action-pipeline tutorial/14_capability_probe/clinical_chem.tame CL
 - `RESULT` 태그는 기본적으로 여러 개가 허용된다. 중복 허용 여부와 반복 방식은 plugin/action 계약에서 정해야 한다.
 
 ## 참고
-- 기능 점검 배경과 구현 백로그: [../../../docs/IMPLEMENTATION_GAPS.md](../../../docs/IMPLEMENTATION_GAPS.md)
-- 구현 진행 기록: [../../../docs/IMPLEMENTATION_PROGRESS.md](../../../docs/IMPLEMENTATION_PROGRESS.md)
+- 구현 진행 기록: [../../../docs/TAME_ANALYSIS_CONTRACT_V1.md](../../../docs/TAME_ANALYSIS_CONTRACT_V1.md)
 </content>

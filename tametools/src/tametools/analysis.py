@@ -14,10 +14,11 @@ from .models import ColumnSpec, EDAReport, ReferenceIntervalPlan, TameDataset, V
 from .pandas_compat import concat_dataframes
 from .review_profiles import parse_temporal_value
 from .sex import normalize_sex
+from .measurement_tags import is_categorical_measurement, measurement_tag_issues, require_measurement_tags
 
 
-STRICT_NUM_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
-COMPARATOR_NUM_RE = re.compile(r"^(?P<op><=|>=|<|>|=)?\s*(?P<num>[+-]?(?:\d+(?:\.\d+)?|\.\d+))$")
+STRICT_NUM_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$")
+COMPARATOR_NUM_RE = re.compile(r"^(?P<op><=|>=|<|>|=)?\s*(?P<num>[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?)$")
 COMPARATOR_CODE = {"": "EQ", "=": "EQ", "<": "LT", "<=": "LE", ">": "GT", ">=": "GE"}
 COMPARATOR_SYMBOL = {value: key or "=" for key, value in COMPARATOR_CODE.items()}
 IMPORTANT_PERCENTILES: tuple[tuple[str, float], ...] = (
@@ -54,6 +55,21 @@ def validate_dataset(dataset: TameDataset) -> ValidationResult:
     from .categories import category_validation_issues
 
     issues.extend(category_validation_issues(dataset))
+    issues.extend(measurement_tag_issues(dataset))
+
+    from .analysis_contract import contract_validation_issues
+
+    issues.extend(contract_validation_issues(dataset))
+    from .observation_contract import observation_validation_issues
+    issues.extend(observation_validation_issues(dataset))
+
+    from .integration import integration_validation_issues
+
+    issues.extend(integration_validation_issues(dataset))
+
+    from .planned_analysis import analysis_plan_validation_issues
+
+    issues.extend(analysis_plan_validation_issues(dataset))
 
     settings = dataset.settings()
     action = str(ci_get(settings, "VALIDATE_ERROR", "REPORT")).upper()
@@ -141,7 +157,8 @@ def exploratory_data_analysis(dataset: TameDataset, *, comparator_policy: str | 
 
 
 def reference_interval_plan(dataset: TameDataset) -> ReferenceIntervalPlan:
-    result_columns = tuple(dataset.columns_with_tag("RESULT"))
+    result_columns = tuple(column for column in dataset.columns_with_tag("RESULT")
+                           if not is_categorical_measurement(dataset, column))
     item_column = dataset.first_column_with_tag("TESTNAME") or dataset.first_column_with_tag("ITEM")
     age_column = dataset.first_column_with_tag("AGE")
     sex_column = dataset.first_column_with_tag("SEX")
@@ -335,8 +352,18 @@ def result_by_summary_table(dataset: TameDataset, *, comparator_policy: str | No
 
 
 def numeric_series_for(dataset: TameDataset, column: ColumnSpec | str, *, crr_policy: str | None = None) -> pd.Series:
+    require_measurement_tags(dataset)
+    from .observation_contract import require_capabilities, result_status
+    require_capabilities(dataset)
     spec = column if isinstance(column, ColumnSpec) else _resolve_column(dataset, column)
+    if is_categorical_measurement(dataset, spec):
+        raise ValueError(f"{spec.name}: NOMINAL/ORDINAL codes are not quantitative measurements")
     policy = _normalize_comparator_policy(dataset, crr_policy)
+    from .planned_analysis import _eligibility
+    eligible = _eligibility(dataset, spec)[0]
+    if ci_get(dataset.column_metadata(spec), "CENSORING_INTERVAL", None) is not None:
+        from .interval_censoring import interval_values
+        return interval_values(dataset, spec, policy)[0].where(eligible)
     values: list[float | None] = []
 
     for value in dataset.df[spec.name]:
@@ -360,7 +387,8 @@ def numeric_series_for(dataset: TameDataset, column: ColumnSpec | str, *, crr_po
         parsed = parse_strict_number(text)
         values.append(parsed)
 
-    return pd.Series(values, index=dataset.df.index, dtype="float64")
+    result = pd.Series(values, index=dataset.df.index, dtype="float64")
+    return result.where(eligible)
 
 
 def age_series_for(dataset: TameDataset, column: ColumnSpec | str) -> pd.Series:
@@ -370,14 +398,18 @@ def age_series_for(dataset: TameDataset, column: ColumnSpec | str) -> pd.Series:
 
 
 def parse_strict_number(text: str) -> float | None:
-    return float(text) if STRICT_NUM_RE.match(text) else None
+    if not STRICT_NUM_RE.fullmatch(text):
+        return None
+    value = float(text)
+    return value if math.isfinite(value) else None
 
 
 def parse_comparator_number(text: str) -> tuple[str, float] | None:
     match = COMPARATOR_NUM_RE.match(text)
     if not match:
         return None
-    return (match.group("op") or ""), float(match.group("num"))
+    value = float(match.group("num"))
+    return ((match.group("op") or ""), value) if math.isfinite(value) else None
 
 
 def comparator_parts_series(dataset: TameDataset, column: ColumnSpec | str) -> pd.DataFrame:
@@ -612,7 +644,7 @@ def _validate_column(
     if dataset.column_has_tag(column, "NUM"):
         text = _active_text(series, states, unresolved)
         add(
-            _mask_from_index(series.index, text.index[~text.str.match(STRICT_NUM_RE)]),
+            _mask_from_index(series.index, text.index[text.map(parse_strict_number).isna()]),
             "NUM",
             "Expected a strict numeric value.",
         )
@@ -620,7 +652,7 @@ def _validate_column(
     if dataset.column_has_tag(column, "<NUM>"):
         text = _active_text(series, states, unresolved)
         add(
-            _mask_from_index(series.index, text.index[~text.str.match(COMPARATOR_NUM_RE)]),
+            _mask_from_index(series.index, text.index[text.map(parse_comparator_number).isna()]),
             "<NUM>",
             "Expected a comparator-aware numeric value.",
         )
@@ -891,12 +923,16 @@ def _result_by_columns() -> list[str]:
 
 def _is_numeric_column(column: ColumnSpec, dataset: TameDataset | None = None) -> bool:
     if dataset is not None:
+        if is_categorical_measurement(dataset, column):
+            return False
         return (
             dataset.column_has_tag(column, "NUM")
             or dataset.column_has_tag(column, "<NUM>")
             or dataset.column_has_tag(column, "AGE")
             or (dataset.column_has_tag(column, "RESULT") and not dataset.column_has_tag(column, "TXT"))
         )
+    if column.has_any_tag(("NOMINAL", "ORDINAL")):
+        return False
     return (
         column.has_tag("NUM")
         or column.has_tag("<NUM>")

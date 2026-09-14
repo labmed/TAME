@@ -1,123 +1,83 @@
-# TAME and tametools
+# TAME and tametools 0.4.0
 
-TAME is a tag-first text format for laboratory tabular data, and `tametools` is the reference toolkit that reads, validates, transforms, and analyzes that format.
+TAME stores tabular data, column semantics, analysis settings, and processing history in one UTF-8 text file. **tametools** provides a Python API, command-line tools, and a local browser workbench.
 
-## What This Repository Contains
+## Choose how to run
 
-- `TAME_FORMAT_SPECIFICATION.md`: formal file-format specification for TAME
-- `tametools/`: installable Python package and CLI
-- `tutorial/`: runnable examples for validation, anonymization, merge, export, plugins, embedded functions, and command pipelines
+| Distribution | Requirements | Start |
+|---|---|---|
+| Windows installer | Windows x64 | Install `tametools-0.4.0-x64.msi`, then open **tametools Web Workbench** |
+| Windows portable | Windows x64 | Extract the complete `tametools-0.4.0-windows-x64-portable.zip`; run `tametools/tametools-web.exe` |
+| Local Chrome bundle | Python 3.10–3.13, 64-bit; Chrome; internet for first setup | Extract `tametools-0.4.0-browser-local.zip`; run `Start_Chrome.cmd` or `bash Start_Chrome.sh` |
+| Python package | Python 3.10+ | Install the wheel or the source package |
 
-## Core Ideas
+Download files from [GitHub Releases](https://github.com/labmed/TAME/releases). The browser bundle runs a Python server on your own computer at `127.0.0.1:8765`; it is not a serverless HTML application. Node.js is unnecessary when using the prebuilt browser bundle.
 
-- Humans read column labels.
-- `tametools` reads tags.
-- Tagged headers such as `[[RESULT::NUM]]result`, `[[AGE]]age`, and `[[SEX]]sex` drive validation and analysis.
-- The canonical header syntax is `[[TAG::TAG]]display_name`.
-- Cell states distinguish `ABSENT`, `NULL`, `EMPTY`, and whitespace-only values.
-- Multi-hospital data can be merged by tag semantics instead of literal column names.
-- Every operation appends provenance to `META[[LOG]]`, so a result `.tame` records how it was produced.
-- `.tame`, `.xlsx`, `.meta.tame`, and `.data.tame` can be chained in repeatable workflows.
+[한국어 브라우저 실행 안내](README_BROWSER_KO.md) · [웹 사용 안내](docs/WEB_QUICKSTART_KO.md)
 
-## Main Features
+## Install from source
 
-- `init`: bootstrap a starter `.tame` from any `.xlsx`/`.csv` by inferring header tags and datatypes
-- Validation and descriptive analysis based on tagged headers
-- Comparator-aware numeric handling for values such as `<3` or `>5000`
-- Category vocabulary normalization (`normalize-categories`) and ISO 8601 date/time normalization (`normalize-datetimes`)
-- Tag-based merge across differently named source columns
-- Anonymization of `ID` and `HOSPITAL_ID` fields with mapping-table export
-- Provenance and integrity: `logs` (processing history), `verify` (re-run hash match), `stamp`/`check-integrity` (tamper-evident), `check-excel` (spreadsheet coercion damage)
-- Multi-sheet spreadsheet flattening and restoration
-- Image-column conversion between `IMAGE::B64` and `IMAGE::PATH`
-- Export to `csv`, `tsv`, `jsonl`, `sql`, `parquet`, `feather`, and `r_bundle`
-- Reusable sidecar metadata with `.meta.tame`
-- Template-based `import-xlsx` for replacing data while preserving tags and pipeline definitions
-- Embedded `META[FUNCTIONS]` (lightweight Python/R UDFs) and `META[PIPELINES]` (chained commands)
-
-## Installation
-
-### Windows (recommended) — installer
-
-Download `tametools-0.2.0-x64.msi` from the [latest release](https://github.com/labmed/TAME/releases/latest)
-and run it. The `tametools` command is added to `PATH` and a **tametools Web Workbench** shortcut is created.
-A closed-network offline bundle (`tametools-windows-offline.zip`) is also provided.
-
-### pip (Linux/macOS/Windows)
-
-```bash
-pip install 'tametools[report,web]'
+```sh
+python -m pip install './tametools[analysis,nhanes,integration,parquet,web]'
+tametools --version
+tametools doctor
+tametools plugins
 ```
 
-Or install the Python wheel attached to the [latest release](https://github.com/labmed/TAME/releases/latest):
+The wheel contains the CLI and Python library. The web backend and frontend are provided in this repository and in the browser/Windows bundles.
 
-```bash
-pip install ./tametools-0.2.0-py3-none-any.whl
+## Start a data workflow
+
+```sh
+tametools init data.csv --output starter.tame
+tametools init data.csv --output reviewed.tame --definitions starter.definitions.toml --require-reviewed
+tametools validate reviewed.tame
+tametools describe reviewed.tame
+tametools convert reviewed.tame result.xlsx
 ```
 
-From a checkout of this repository:
+`init` checks complete columns, proposes tags, and flags ambiguous sex codes, units, censoring policies, and missing-value meanings. Review the generated definitions before using them. Numeric sex codes can have different mappings for each source. Age review supports mixed month/year expressions, optional completed-year columns, and optional age groups.
 
-```bash
-pip install -e './tametools[report,web]'
-```
+[init and SEX/AGE declarations](docs/INIT_SEMANTICS_KO.md) · [Unit conversions](docs/INIT_UNIT_DECLARATIONS_KO.md)
 
-## Quick Start
+## Features
 
-All examples below use the installed `tametools` command.
+- Typed headers and stable `COLUMN.ID` declarations, independent of display names.
+- Explicit absent, null, empty, and whitespace states; comparator-aware values such as `<0.15`.
+- Source-specific category normalization, declared unit conversion, merging, joins, and reshaping.
+- Descriptive analysis, survey-aware summaries, anonymization, spreadsheet import/export, and image columns.
+- `RI_EP28`: reference-interval estimation, outlier policies, partitions, interval verification, and reports.
+- Reusable metadata and processing chains with settings, input hashes, and parent history.
+- Browser workbench with example loading, source selection, result tables, and report downloads.
 
-```bash
-tametools --help
-tametools doctor                                   # check install and optional dependencies
-```
-
-Bootstrap a `.tame` from any spreadsheet (new users start here):
-
-```bash
-tametools init data.xlsx --output data.tame        # infer header tags and datatypes
-```
-
-Inspect, validate, and analyze a tagged dataset:
-
-```bash
-tametools info tutorial/01_tagged_eda/sample_eda.tame
-tametools columns tutorial/01_tagged_eda/sample_eda.tame
-tametools validate tutorial/01_tagged_eda/sample_eda.tame
-tametools describe tutorial/01_tagged_eda/sample_eda.tame
-```
-
-Run a metadata-defined workflow and inspect its provenance:
-
-```bash
-tametools run tutorial/01_tagged_eda/sample_eda.tame DEFAULT --output out.tame
-tametools logs out.tame                            # processing history embedded in the artifact
-tametools verify tutorial/01_tagged_eda/sample_eda.tame
-```
-
-Reuse metadata on a new spreadsheet:
-
-```bash
-tametools split-tame tutorial/01_tagged_eda/sample_eda.tame --meta-output sample.meta.tame
-tametools run new_results.xlsx DEFAULT --meta sample.meta.tame --output validated.tame
-```
-
-> Without installing, prefix any command with `PYTHONPATH=tametools/src:. python3 -m` from a repository checkout,
-> e.g. `PYTHONPATH=tametools/src:. python3 -m tametools info tutorial/01_tagged_eda/sample_eda.tame`.
-
-## Tutorials
-
-Start here:
-
-- [tutorial/README.md](tutorial/README.md)
+The included synthetic examples are software demonstrations. The Kenya example is derived from [CC0 public data](https://doi.org/10.5061/dryad.nvx0k6dns); its attribution is preserved in `web/backend/examples/README_KO.md`. NHANES examples are downloaded from CDC on request.
 
 ## Documentation
 
-- [TAME_FORMAT_SPECIFICATION.md](TAME_FORMAT_SPECIFICATION.md)
+- [File-format specification](TAME_FORMAT_SPECIFICATION.md)
+- [Tutorials](tutorial/README.md)
+- [EP28 plugin](docs/REFERENCE_INTERVAL_EP28_GUIDE_KO.md)
+- [Plugin development](docs/PLUGIN_AUTHOR_GUIDE.md)
+- [Analysis plans](docs/TAME_ANALYSIS_PLAN_V1.md)
+- [Analysis history and verification](docs/ANALYSIS_LOG_GUIDE_KO.md)
+- [Build and release](docs/BUILD_AND_RELEASE.md) · [GitHub 게시 안내](docs/GITHUB_UPLOAD_KO.md)
 
-## Releases
+## Build the browser frontend
 
-Windows installer (MSI), offline bundle, Python wheel, and source distribution are published on the
-[Releases page](https://github.com/labmed/TAME/releases).
+```sh
+cd web/frontend
+npm ci
+npm run check
+npm run build
+cd ../..
+python scripts/start_tametools_browser.py
+```
 
-## Data Safety Note
+## Tests
 
-- The tutorial datasets are synthetic data.
+```sh
+python -m pip install pytest httpx
+python -m pytest tametools/tests web/backend/tests tests
+```
+
+Some optional integration tests require R or additional dependencies. The release verification records the tests actually run and any skips.

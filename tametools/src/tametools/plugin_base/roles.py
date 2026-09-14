@@ -5,6 +5,9 @@ from typing import Any, Iterable
 
 from ..config import ci_get
 from ..models import ColumnSpec, TameDataset
+from ..measurement_tags import is_categorical_measurement, require_measurement_tags
+from ..analysis_contract import resolve_id
+from ..tags import TAG_TOKEN_RE, normalize_tag
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,7 @@ RESULT_ROLE = PluginRole(
 
 def bind_role(dataset: TameDataset, role: PluginRole, options: dict[str, Any] | None = None) -> RoleBinding:
     options = options or {}
+    require_measurement_tags(dataset)
     explicit = _explicit_columns(dataset, role, options)
     if explicit:
         columns = explicit
@@ -58,7 +62,7 @@ def bind_role(dataset: TameDataset, role: PluginRole, options: dict[str, Any] | 
     if not columns and role.cardinality in {"one", "one_or_more"}:
         warnings.append(f"Missing required role {role.name}: tags={','.join(role.tags)}.")
     if len(columns) > 1 and role.cardinality == "one":
-        warnings.append(f"Role {role.name} requires one column but matched {len(columns)}: {_names(columns)}.")
+        raise ValueError(f"Role {role.name} requires one column but matched {len(columns)}: {_names(columns)}.")
     return RoleBinding(role=role, columns=tuple(columns), warnings=tuple(warnings))
 
 
@@ -109,11 +113,43 @@ def role_contract_payload(roles: Iterable[PluginRole]) -> list[dict[str, Any]]:
 
 def _explicit_columns(dataset: TameDataset, role: PluginRole, options: dict[str, Any]) -> list[ColumnSpec]:
     result: list[ColumnSpec] = []
+    special = [key for key in ("RESULT_IDS", "RESULT_TAGS") if any(str(k).upper() == key for k in options)] if role.name == "result" else []
+    regular = [key for key in role.option_keys if any(str(k).upper() == key for k in options)]
+    if len(special) > 1 or len(regular) > 1 or (special and regular):
+        raise ValueError("Use only one result selector: RESULT_IDS, RESULT_TAGS, or a result column option")
+    if special:
+        key = special[0]
+        values = ci_get(options, key)
+        if not isinstance(values, list) or not values or any(not isinstance(v, str) or not v.strip() for v in values) or len(set(values)) != len(values):
+            raise ValueError(key + " requires a nonempty distinct string list")
+        if key == "RESULT_IDS":
+            result = [resolve_id(dataset, identifier) for identifier in values]
+        else:
+            from ..analysis_contract import column_ids
+            column_ids(dataset)
+            if any(not TAG_TOKEN_RE.fullmatch(v) for v in values) or len({normalize_tag(v) for v in values}) != len(values):
+                raise ValueError("Invalid or duplicate RESULT_TAGS")
+            result = dataset.find_columns(required_tags=values)
+            if any(ci_get(dataset.column_metadata(c), "ID", None) is None for c in result):
+                raise ValueError("RESULT_TAGS matches require stable COLUMN.ID")
+            result.sort(key=lambda c: ci_get(dataset.column_metadata(c), "ID"))
+        if not result or len(_filter_numeric(dataset, role, result)) != len(result):
+            raise ValueError("Explicit result selection is empty or not quantitative")
+        return result
     for key in role.option_keys:
+        if key not in regular:
+            continue
         value = ci_get(options, key, None)
-        for item in _as_list(value):
+        items = _as_list(value)
+        if not items:
+            raise ValueError(key + " was specified but is empty")
+        for item in items:
             column = _resolve_column(dataset, item)
-            if column is not None and column.name not in {existing.name for existing in result}:
+            if column is None:
+                raise ValueError(f"{key}: unknown or ambiguous column selector {item!r}")
+            if role.numeric and not _filter_numeric(dataset, role, [column]):
+                raise ValueError(f"{key}: selected column is not quantitative: {column.name}")
+            if column.name not in {existing.name for existing in result}:
                 result.append(column)
     return _filter_numeric(dataset, role, result)
 
@@ -126,7 +162,7 @@ def _tag_columns(dataset: TameDataset, role: PluginRole) -> list[ColumnSpec]:
             if dataset.column_has_tag(column, "NUM") or dataset.column_has_tag(column, "<NUM>") or dataset.column_has_tag(column, "RESULT")
         ]
         if result_matches:
-            return result_matches
+            return _filter_numeric(dataset, role, result_matches)
 
     matched: list[ColumnSpec] = []
     for tag in role.tags:
@@ -142,9 +178,9 @@ def _filter_numeric(dataset: TameDataset, role: PluginRole, columns: list[Column
     return [
         column
         for column in columns
-        if dataset.column_has_tag(column, "NUM")
+        if not is_categorical_measurement(dataset, column) and (dataset.column_has_tag(column, "NUM")
         or dataset.column_has_tag(column, "<NUM>")
-        or dataset.column_has_tag(column, "RESULT")
+        or dataset.column_has_tag(column, "RESULT"))
     ]
 
 
@@ -152,6 +188,8 @@ def _resolve_column(dataset: TameDataset, value: Any) -> ColumnSpec | None:
     text = str(value or "").strip()
     if not text:
         return None
+    if text.lower().startswith("id:"):
+        return resolve_id(dataset, text[3:])
     if text.lower().startswith("tag:"):
         matches = dataset.columns_with_tag(text.split(":", 1)[1])
         return matches[0] if len(matches) == 1 else None
@@ -159,10 +197,8 @@ def _resolve_column(dataset: TameDataset, value: Any) -> ColumnSpec | None:
         if column.name == text:
             return column
     lowered = text.lower()
-    for column in dataset.columns:
-        if column.name.lower() == lowered:
-            return column
-    return None
+    matches = [column for column in dataset.columns if column.name.lower() == lowered]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _as_list(value: Any) -> list[Any]:

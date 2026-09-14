@@ -67,6 +67,10 @@ P2\tS4\tB\t2026-02-01 08:00\t22\t45
 
 
 METHOD_TAME = """
+<META>
+[COLUMN.result]
+UNIT = "U/L"
+</META>
 <DATA>
 [[ID(patient)::STR]]pid\t[[ID(sample)::STR]]sample\t[[ITEM::TESTNAME::CATEGORY]]test\t[[INSTRUMENT::CATEGORY]]inst\t[[RESULT::NUM]]result
 P1\tS1\tAST\tA\t10
@@ -151,6 +155,9 @@ def run_scenario(scenario: Scenario, tmp_path: Path) -> None:
 
     if scenario.operation == "plugin":
         dataset = read_tame(path)
+        if scenario.params.get("EXPECT_ERROR"):
+            _expect_error(lambda: run_plugin(dataset, scenario.params["PLUGIN"], dataset.meta, scenario.id, scenario.params.get("OPTIONS", {})), (ValueError,))
+            return
         output = run_plugin(dataset, scenario.params["PLUGIN"], dataset.meta, scenario.id, scenario.params.get("OPTIONS", {}))
         if output is None:
             raise AssertionError(f"{scenario.id}: plugin not found")
@@ -180,10 +187,10 @@ def scenario_summary() -> pd.DataFrame:
 def _validation_scenarios() -> list[Scenario]:
     cases: list[Scenario] = []
     groups = [
-        ("NUM_valid", ("NUM",), ["0", "-1", "+2", "1.25", ".5", "0007", "999999", "3.14159"], []),
-        ("NUM_invalid", ("NUM",), ["1,000", "1e3", "<5", "positive", "NaN", "5 mg/dL", "--1", "++1"], ["NUM"]),
-        ("CNUM_valid", ("<NUM>",), ["0", "<5", "<=5", "> 7", ">=7", "=8", "-0.5", ".25"], []),
-        ("CNUM_invalid", ("<NUM>",), ["~5", "1e3", "positive", "<<5", "5 mg/dL", ">", "<", "abc"], ["<NUM>"]),
+        ("NUM_valid", ("NUM",), ["0", "-1", "+2", "1.25", ".5", "0007", "1e3", "3.14159"], []),
+        ("NUM_invalid", ("NUM",), ["1,000", "1e", "<5", "positive", "NaN", "5 mg/dL", "--1", "++1"], ["NUM"]),
+        ("CNUM_valid", ("<NUM>",), ["0", "<5", "<=5", "> 7", ">=7", "=8", "-0.5", "<1e3"], []),
+        ("CNUM_invalid", ("<NUM>",), ["~5", "1e", "positive", "<<5", "5 mg/dL", ">", "<", "abc"], ["<NUM>"]),
         ("AGE_valid", ("AGE",), ["0", "32", "2mo", "3m", "4d", "70세", "1.5year", "0005"], []),
         ("AGE_invalid", ("AGE",), ["-1", "abc", "1wk", "NaN", "1,000", "2h", "세", "--3"], ["AGE"]),
         ("SEX_valid", ("SEX",), ["F", "M", "female", "male", "여", "남", "unknown", "other", "1", "2"], []),
@@ -328,9 +335,9 @@ def _pipeline_scenarios() -> list[Scenario]:
 def _plugin_scenarios() -> list[Scenario]:
     plugin_specs = [
         ("PL001_reference_interval", BASE_TAME, "REFERENCE_INTERVAL", {}, ["test_name"], 1),
-        ("PL002_abnormal_flag", BASE_TAME, "ABNORMAL_FLAG", {"MODE": "FLAG"}, [], 0),
-        ("PL003_abnormal_rate", BASE_TAME, "ABNORMAL_FLAG", {"MODE": "RATE"}, ["abnormal_rate"], 1),
-        ("PL004_autoverification", BASE_TAME, "AUTOVERIFICATION", {"CRITICAL_HIGH_BY_TEST": {"AST": 60}}, ["decision"], 1),
+        ("PL002_abnormal_flag", BASE_TAME, "ABNORMAL_FLAG", {"MODE": "FLAG", "ALLOW_UNDECLARED_UNITS": True}, [], 0),
+        ("PL003_abnormal_rate", BASE_TAME, "ABNORMAL_FLAG", {"MODE": "RATE", "ALLOW_UNDECLARED_UNITS": True}, ["abnormal_rate"], 1),
+        ("PL004_autoverification", BASE_TAME, "AUTOVERIFICATION", {"CRITICAL_HIGH_BY_TEST": {"AST": 60}, "ALLOW_UNDECLARED_UNITS": True}, ["decision"], 1),
         ("PL005_chem_item_counts", BASE_TAME, "CHEMISTRY_ANALYSIS", {"MODE": "ITEM_COUNTS"}, ["검사항목명"], 1),
         ("PL006_chem_result_summary", BASE_TAME, "CHEMISTRY_ANALYSIS", {"MODE": "RESULT_SUMMARY"}, ["중앙값"], 1),
         ("PL007_chem_histogram", BASE_TAME, "CHEMISTRY_ANALYSIS", {"MODE": "RESULT_HISTOGRAM"}, ["구간"], 1),
@@ -343,7 +350,7 @@ def _plugin_scenarios() -> list[Scenario]:
         ("PL014_chem_outliers", BASE_TAME, "CHEMISTRY_ANALYSIS", {"MODE": "OUTLIERS_IQR"}, ["이상치수"], 1),
         ("PL015_chem_delta", BASE_TAME, "CHEMISTRY_ANALYSIS", {"MODE": "DELTA_CHECK"}, ["절대변화"], 1),
         ("PL016_chem_missing", BASE_TAME, "CHEMISTRY_ANALYSIS", {"MODE": "MISSING_QUALITY"}, ["비정상셀수"], 1),
-        ("PL017_method_comparison", METHOD_TAME, "METHOD_COMPARISON", {}, ["pb_slope"], 1),
+        ("PL017_method_comparison", METHOD_TAME, "METHOD_COMPARISON", {"METHOD_A": "A", "METHOD_B": "B"}, ["pb_slope"], 1),
         ("PL018_group_test", BASE_TAME, "GROUP_TEST", {"GROUP": "tag:INSTRUMENT"}, ["method"], 1),
         ("PL019_correlation", BASE_TAME, "CORRELATION", {}, [], 0),
         ("PL020_qc_precision", BASE_TAME, "QC_ANALYSIS", {"MODE": "PRECISION"}, ["cv_percent"], 1),
@@ -365,7 +372,7 @@ def _plugin_scenarios() -> list[Scenario]:
             purpose=f"Run {plugin} with options {options}",
             operation="plugin",
             tame=tame,
-            params={"PLUGIN": plugin, "OPTIONS": options},
+            params={"PLUGIN": plugin, "OPTIONS": options, "EXPECT_ERROR": sid == "PL021_qc_westgard"},
             expect={"columns": columns, "rows_min": rows_min},
         )
         for sid, tame, plugin, options, columns, rows_min in plugin_specs

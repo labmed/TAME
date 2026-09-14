@@ -1,4 +1,4 @@
-"""시간형(DATE/DATETIME/TIME) ISO 8601 정규화 테스트 (reviewer C-2)."""
+"""시간형(DATE/DATETIME/TIME) ISO 8601 정규화 테스트 ."""
 from __future__ import annotations
 
 import tempfile

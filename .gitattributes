@@ -1,0 +1,10 @@
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+# Windows batch files must use CRLF or cmd.exe drops characters mid-line.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# Shell scripts must stay LF.
+*.sh text eol=lf

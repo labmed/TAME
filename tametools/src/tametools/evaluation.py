@@ -84,7 +84,7 @@ def evaluate_dataset(
     baseline_label: str = "existing",
     tame_label: str = "TAME",
 ) -> EvaluationReport:
-    """Build reusable tables for reusable workflow and data quality evaluation."""
+    """Build reusable tables for workflow and data quality evaluation."""
 
     quality_rows = []
     if baseline_dataset is not None:

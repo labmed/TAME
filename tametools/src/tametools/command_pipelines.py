@@ -20,6 +20,7 @@ from .evaluation import evaluate_dataset, write_evaluation_report
 from .exporters import available_export_formats, export_dataset
 from .models import OperationOutput, PipelineResult, TameDataset
 from .pipeline import execute_work
+from .provenance import append_log_entry, inherit_logs, run_scope, operation_scope
 from .plugin_base.manager import configured_plugin_modules, run_plugin
 from .review_profiles import category_value_profile, datetime_value_profile
 from .sex import parse_sex_binary_map, sex_value_profile, standardize_sex_dataset
@@ -55,17 +56,20 @@ def execute_command_pipeline(
     commands = _resolve_pipeline_commands(dataset.meta, pipeline_name)
     outputs: list[OperationOutput] = []
     current = dataset
-    for command_text in commands:
-        output = _execute_command_text(
-            current,
-            command_text,
-            allow_functions=allow_functions,
-            allow_plugins=allow_plugins,
-            log_level=log_level,
-        )
-        outputs.append(output)
-        if output.dataset is not None:
-            current = output.dataset
+    with run_scope():
+        for command_text in commands:
+            with operation_scope('COMMAND:' + command_text.split()[0].upper(), [current], parameters={'command': command_text}):
+                output = _execute_command_text(current, command_text, allow_functions=allow_functions,
+                    allow_plugins=allow_plugins, log_level=log_level)
+                target = output.dataset if output.dataset is not None else current
+                output.dataset = inherit_logs(target, current)
+                if str(log_level).lower() == 'detailed':
+                    output.dataset = append_log_entry(output.dataset, action='COMMAND:' + command_text.split()[0],
+                        message=output.message or command_text, parameters={'command': command_text},
+                        input_dataset=current, status=output.status, warnings=output.warnings,
+                        operation_output=output, counts={'ISSUES': len(output.issues or [])})
+                outputs.append(output)
+                current = output.dataset
     return PipelineResult(work_name=pipeline_name, final_dataset=current, outputs=outputs)
 
 

@@ -1,12 +1,38 @@
+# Local environments and caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
-~$*
-
-# Generated tutorial artifacts (run outputs, rendered reports, chart images)
+*.egg-info/
+.venv/
+.build-venv/
+.browser-runtime/
+.web-runtime/
+.wix311/
+node_modules/
+.svelte-kit/
+# Local build products: upload dist/0.4.0 files as GitHub Release assets.
+/dist/
+/build/
+/tametools/build/
+/tametools/dist/
+/web/frontend/build/
+*.wixobj
+*.wixpdb
+# Generated analysis files and workspaces
+/outputs/
 **/outputs/
 **/*_charts/
-tutorial/**/*.docx
-tutorial/**/*.pdf
-tutorial/11_command_pipelines/outputs/
+**/tametools_failed_runs/
+*.log
+~$*
+*.wbk
+.env
+.env.*
+!.env.example
+# Internal work is never part of the application release.
+/revision/
+/LMO_submit*/
+/public_dataset/
+/.agents/
+/.claude/
+/.codex/

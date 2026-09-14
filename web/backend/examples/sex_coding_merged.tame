@@ -1,0 +1,25 @@
+<META>
+[INFO]
+DESCRIPTION = "Synthetic six-row code-routing fixture only; not clinical reference individuals."
+
+[COLUMN]
+
+[COLUMN.ALT]
+ID = "alt"
+UNIT = "U/L"
+LABEL = "ALT"
+
+[MULTISHEET]
+COLUMN = "시트명"
+SOURCE_COLUMN_NAME = "시트명"
+SHEETS = ["A_0_1", "B_1_2"]
+</META>
+<DATA>
+[[ID::STR]]Person	[[SEX::STR]]Sex	[[RESULT::NUM]]ALT	[[SHEET::STR]]시트명
+A_0_1_1	0	11	A_0_1
+A_0_1_2	1	12	A_0_1
+A_0_1_3	1	13	A_0_1
+B_1_2_1	1	11	B_1_2
+B_1_2_2	2	12	B_1_2
+B_1_2_3	1	13	B_1_2
+</DATA>

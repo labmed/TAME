@@ -9,12 +9,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .cellstate import NULL
+from .cellstate import NULL, STATE_VALUE, cell_state
 from .config import ci_get
 from .models import ColumnSpec, OperationOutput, PipelineResult, TameDataset
 from .pandas_compat import concat_dataframes
 from .audit import dataset_content_hash
-from .provenance import append_log_entry
+from .provenance import append_log_entry, inherit_logs, run_scope, operation_scope
 from .tag_catalog import any_tag_inherits
 from .tags import build_header, merge_tags
 
@@ -168,21 +168,19 @@ def execute_action_pipeline(dataset: TameDataset, pipeline_name: str = "DEFAULT"
     current = dataset
     outputs: list[OperationOutput] = []
     detailed_log = str(log_level or "detailed").strip().lower() == "detailed"
-    for action_name in action_names:
-        input_hash = dataset_content_hash(current)
-        output = execute_action(current, action_name)
-        if detailed_log and output.dataset is not None:
-            name, config = _resolve_action_config(current.meta, action_name)
-            output.dataset = _logged_action_dataset(
-                output.dataset,
-                action_name=name,
-                config=config,
-                input_hash=input_hash,
-                output=output,
-            )
-        outputs.append(output)
-        if output.dataset is not None:
-            current = output.dataset
+    with run_scope():
+        for action_name in action_names:
+            with operation_scope(f'ACTION:{action_name}', [current]):
+                input_hash = dataset_content_hash(current)
+                output = execute_action(current, action_name)
+                target = output.dataset if output.dataset is not None else current
+                output.dataset = inherit_logs(target, current)
+                if detailed_log:
+                    name, config = _resolve_action_config(current.meta, action_name)
+                    output.dataset = _logged_action_dataset(output.dataset, action_name=name, config=config,
+                        input_hash=input_hash, output=output, input_dataset=current)
+                outputs.append(output)
+                current = output.dataset
     return PipelineResult(work_name=str(pipeline_name), final_dataset=current, outputs=outputs)
 
 
@@ -193,6 +191,7 @@ def _logged_action_dataset(
     config: dict[str, Any],
     input_hash: str,
     output: OperationOutput,
+    input_dataset: TameDataset,
 ) -> TameDataset:
     output_hash = dataset_content_hash(dataset)
     parameters = {
@@ -210,7 +209,9 @@ def _logged_action_dataset(
         action=f"ACTION:{action_name}",
         message=output.message or "",
         parameters=parameters,
-        warnings=list(output.warnings or []),
+        warnings=list(output.warnings or []), input_dataset=input_dataset,
+        status=output.status, operation_output=output, effective_parameters=config,
+        counts={"ISSUES": len(output.issues or [])},
     )
 
 
@@ -887,6 +888,15 @@ def _execute_join(dataset: TameDataset, action_name: str, config: dict[str, Any]
     how = str(ci_get(config, "HOW", "left")).strip().lower()
     if how not in {"left", "inner", "right", "outer"}:
         raise ActionError(f"ACTION {action_name} JOIN unsupported HOW: {how}")
+    validate = ci_get(config, "VALIDATE", None)
+    if validate is not None and (not isinstance(validate, str) or validate not in {"one_to_one", "one_to_many", "many_to_one", "many_to_many"}):
+        raise ActionError(f"ACTION {action_name} JOIN unsupported VALIDATE: {validate}")
+    missing_keys = str(ci_get(config, "MISSING_KEYS", "ALLOW")).upper()
+    if missing_keys not in {"ALLOW", "ERROR"}:
+        raise ActionError(f"ACTION {action_name} JOIN MISSING_KEYS must be ALLOW or ERROR.")
+    require_right_match = ci_get(config, "REQUIRE_RIGHT_MATCH", False)
+    if not isinstance(require_right_match, bool):
+        raise ActionError(f"ACTION {action_name} JOIN REQUIRE_RIGHT_MATCH must be boolean.")
 
     right_df, right_columns = _read_join_table(right_path)
     if on:
@@ -918,7 +928,22 @@ def _execute_join(dataset: TameDataset, action_name: str, config: dict[str, Any]
     suffix = str(ci_get(config, "SUFFIX", "_right"))
 
     left = dataset.df.copy()
-    merged = left.merge(right_subset, on=left_keys, how=how, suffixes=("", suffix))
+    if missing_keys == "ERROR":
+        for side, frame in (("left", left), ("right", right_subset)):
+            invalid = frame[left_keys].apply(lambda col: col.map(lambda value: cell_state(value) != STATE_VALUE))
+            if invalid.any(axis=None):
+                raise ActionError(f"ACTION {action_name} JOIN missing {side} key (including NULL, empty or whitespace).")
+    try:
+        # Count input rows by key membership, not the potentially expanded merge result.
+        left_index = pd.MultiIndex.from_frame(left[left_keys])
+        right_index = pd.MultiIndex.from_frame(right_subset[left_keys])
+        left_unmatched = int((~left_index.isin(right_index)).sum())
+        right_unmatched = int((~right_index.isin(left_index)).sum())
+        if require_right_match and right_unmatched:
+            raise ActionError(f"ACTION {action_name} JOIN has {right_unmatched} unmatched right rows.")
+        merged = left.merge(right_subset, on=left_keys, how=how, suffixes=("", suffix), validate=validate)
+    except (pd.errors.MergeError, TypeError) as exc:
+        raise ActionError(f"ACTION {action_name} JOIN failed: {exc}") from exc
     # Build column specs: keep existing, add new right columns with their tags when available.
     right_tag_map = {c.name: c.tags for c in right_columns}
     columns = list(dataset.columns)
@@ -933,7 +958,10 @@ def _execute_join(dataset: TameDataset, action_name: str, config: dict[str, Any]
     return OperationOutput(
         name=action_name,
         dataset=dataset.replace(df=merged[[c.name for c in columns]], columns=columns),
-        table=pd.DataFrame([{"right": right_path, "on": ", ".join(left_keys), "how": how, "rows_before": len(left), "rows_after": len(merged), "added_columns": len(merged.columns) - len(left.columns)}]),
+        table=pd.DataFrame([{"right": right_path, "on": ", ".join(left_keys), "how": how,
+            "validate": validate or "unchecked", "rows_before": len(left), "right_rows": len(right_subset),
+            "left_unmatched_rows": left_unmatched, "right_unmatched_rows": right_unmatched,
+            "rows_after": len(merged), "added_columns": len(merged.columns) - len(left.columns)}]),
         message=f"join right={right_path} how={how} rows_after={len(merged)}",
     )
 

@@ -47,9 +47,24 @@ def run_plugin(
     *,
     allow_external: bool = False,
 ) -> OperationOutput | None:
+    from ..observation_contract import observation_info
+    from ..measurement_tags import require_measurement_tags
+    observation_info(dataset)
+    require_measurement_tags(dataset)
     spec = get_plugin(name, meta, allow_external=allow_external)
     if spec is None:
         return None
+    from ..provenance import record_effective_parameters
+    import inspect
+    import hashlib
+    implementation = {'NAME': spec.name, 'MODULE': spec.handler.__module__}
+    try:
+        source = inspect.getsourcefile(inspect.unwrap(spec.handler))
+    except (TypeError, OSError):
+        source = None
+    if source and Path(source).is_file():
+        implementation['SOURCE_SHA256'] = hashlib.sha256(Path(source).read_bytes()).hexdigest()
+    record_effective_parameters({'PLUGIN_IMPLEMENTATION': implementation, 'PLUGIN_REQUESTED_OPTIONS': options})
     return spec.handler(dataset, meta or {}, step_name, options)
 
 

@@ -1671,7 +1671,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("tametools analyze fixed.tame PLUGIN", output)
         self.assertIn("Command groups:", output)
         self.assertIn("Compatibility notes:", output)
-        self.assertIn("run-plugin (analyze)", output)
+        self.assertIn("Run a declared analysis plan or a named plugin.", output)
 
     def test_cli_help_command_shows_command_specific_examples(self) -> None:
         code, output = self._run_cli("help", "analyze")
@@ -2162,10 +2162,10 @@ class CliTest(unittest.TestCase):
         self.assertIn("saved:", run_output)
         self.assertEqual(tagged.columns[0].tags, ("SEX",))
         self.assertEqual(tagged.columns[1].tags, ("AGE",))
-        self.assertEqual([entry["OPERATION"] for entry in tagged.meta["LOG"]], ["CLI:RUN-ACTION"])
+        self.assertEqual([entry["OPERATION"] for entry in tagged.meta["LOG"]], ["CLI:RUN-ACTION", "EXPORT_PREPARATION"])
         self.assertEqual(
             [entry["OPERATION"] for entry in detailed.meta["LOG"]],
-            ["ACTION:ADD_SEX_AGE_TAGS", "CLI:RUN-ACTION"],
+            ["ACTION:ADD_SEX_AGE_TAGS", "CLI:RUN-ACTION", "EXPORT_PREPARATION"],
         )
         self.assertIn("input_hash", detailed.meta["LOG"][0]["PARAMS"])
 
@@ -2241,7 +2241,7 @@ class CliTest(unittest.TestCase):
                 str(input_path),
                 "DEFAULT",
                 "--output",
-                str(output_path),
+                str(output_path), "--log-level", "simple",
             )
             detailed_code, detailed_output = self._run_cli(
                 "run-action-pipeline",
@@ -2252,7 +2252,7 @@ class CliTest(unittest.TestCase):
                 "--log-level",
                 "detailed",
             )
-            logs_code, logs_output = self._run_cli("logs", str(output_path))
+            logs_code, logs_output = self._run_cli("logs", str(output_path), "--full")
             logs_json_code, logs_json_output = self._run_cli("logs", str(output_path), "--json", "--limit", "1")
             clear_path = Path(tmpdir) / "action_pipeline_public.tame"
             clear_code, clear_output = self._run_cli("clear-log", str(output_path), "--output", str(clear_path))
@@ -2294,7 +2294,7 @@ class CliTest(unittest.TestCase):
         save_log = transformed.meta["LOG"][0]
         self.assertNotIn("PARENT", save_log)
         self.assertNotIn("OUTPUT", save_log)
-        self.assertEqual(save_log["PARAMS"]["command"], f"tametools run-action-pipeline {input_path} DEFAULT --output {output_path}")
+        self.assertEqual(save_log["PARAMS"]["command"], f"tametools run-action-pipeline {input_path} DEFAULT --output {output_path} --log-level simple")
         self.assertEqual(list(save_log["PARAMS"].keys()), ["command"])
         detailed_save_log = detailed.meta["LOG"][-1]
         self.assertEqual(detailed_save_log["PARENT"], str(input_path))
@@ -2313,7 +2313,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("entries: 1", logs_output)
         self.assertEqual(logs_json_code, 0)
         self.assertEqual(json.loads(logs_json_output)[0]["OPERATION"], "CLI:RUN-ACTION-PIPELINE")
-        self.assertEqual(json.loads(logs_json_output)[0]["PARAMS"]["command"], f"tametools run-action-pipeline {input_path} DEFAULT --output {output_path}")
+        self.assertEqual(json.loads(logs_json_output)[0]["PARAMS"]["command"], f"tametools run-action-pipeline {input_path} DEFAULT --output {output_path} --log-level simple")
         self.assertEqual(clear_code, 0)
         self.assertIn("removed_log_entries: 1", clear_output)
         self.assertNotIn("LOG", cleared.meta)
@@ -2529,10 +2529,12 @@ class PluginTest(unittest.TestCase):
             input_path.write_text(sample, encoding="utf-8")
             dataset = read_tame(input_path)
 
+        dataset.meta.setdefault("COLUMN", {}).update({name: {"UNIT": "U/L"} for name in ("보고값", "하한", "상한")})
         flagged = run_plugin(dataset, "ABNORMAL_FLAG", dataset.meta, "ABNORMAL_FLAG", {"MODE": "FLAG"})
         self.assertIsNotNone(flagged)
         self.assertEqual(flagged.dataset.df["이상플래그"].tolist(), ["N", "H", "L", "N"])
-        self.assertEqual(flagged.dataset.columns[-1].tags, ("FLAG", "CATEGORY"))
+        self.assertEqual(flagged.dataset.columns[-2].tags, ("FLAG", "INTERPRETATION", "CATEGORY"))
+        self.assertIn("이상플래그_reason", flagged.dataset.df)
 
         rate = run_plugin(dataset, "ABNORMAL_FLAG", dataset.meta, "ABNORMAL_FLAG", {"MODE": "RATE"})
         rates = {row["검사항목명"]: row for _, row in rate.table.iterrows()}
@@ -2572,7 +2574,7 @@ class PluginTest(unittest.TestCase):
         flagged = run_plugin(dataset, "ABNORMAL_FLAG", dataset.meta, "ABNORMAL_FLAG", {"MODE": "FLAG"})
         self.assertEqual(flagged.dataset.df["AST_이상플래그"].tolist(), ["N", "H"])
         self.assertEqual(flagged.dataset.df["ALT_이상플래그"].tolist(), ["L", "N"])
-        self.assertEqual(flagged.dataset.columns[-1].tags, ("FLAG", "INTERPRETATION", "CATEGORY"))
+        self.assertEqual(flagged.dataset.columns[-2].tags, ("FLAG", "INTERPRETATION", "CATEGORY"))
         self.assertEqual(flagged.dataset.column_metadata("AST_이상플래그")["SOURCE_RESULT"], "AST")
         self.assertEqual(flagged.dataset.column_metadata("AST_이상플래그")["REFERENCE_SOURCE"], "PIVOT_CONTEXT")
 
@@ -2601,6 +2603,7 @@ class PluginTest(unittest.TestCase):
             input_path = Path(tmpdir) / "autoverify.tame"
             input_path.write_text(sample, encoding="utf-8")
             dataset = read_tame(input_path)
+        dataset.meta["COLUMN"] = {name: {"UNIT": "mg/dL"} for name in ("result", "low", "high")}
 
         output = run_plugin(
             dataset,
@@ -2628,7 +2631,8 @@ class PluginTest(unittest.TestCase):
             input_path = Path(tmpdir) / "mc.tame"
             input_path.write_text(sample, encoding="utf-8")
             dataset = read_tame(input_path)
-        out = run_plugin(dataset, "METHOD_COMPARISON", dataset.meta, "METHOD_COMPARISON", {})
+        dataset.meta["COLUMN"] = {"val": {"UNIT": "U/L"}}
+        out = run_plugin(dataset, "METHOD_COMPARISON", dataset.meta, "METHOD_COMPARISON", {"METHOD_A": "A", "METHOD_B": "B"})
         row = out.table.iloc[0]
         self.assertEqual(int(row["n"]), 40)
         self.assertAlmostEqual(float(row["pb_slope"]), 1.1, places=2)
@@ -2657,7 +2661,9 @@ class PluginTest(unittest.TestCase):
         self.assertIn("cv_percent", list(qc.table.columns))
         self.assertGreater(float(qc.table.iloc[0]["cv_percent"]), 0)
 
-        westgard = run_plugin(dataset, "QC_ANALYSIS", dataset.meta, "QC_ANALYSIS", {"MODE": "WESTGARD"})
+        with self.assertRaisesRegex(ValueError, "RUN_ID"):
+            run_plugin(dataset, "QC_ANALYSIS", dataset.meta, "QC_ANALYSIS", {"MODE": "WESTGARD"})
+        westgard = run_plugin(dataset, "QC_ANALYSIS", dataset.meta, "QC_ANALYSIS", {"MODE": "LEVEY_JENNINGS"})
         self.assertIn("NONE", westgard.table["violation"].tolist())
         self.assertEqual(validate_dataset(westgard.dataset).issues, [])
 
@@ -3518,7 +3524,7 @@ class TutorialExamplesTest(unittest.TestCase):
         if not runner.exists():
             self.skipTest("examples/run_all.py not present")
         env = dict(os.environ)
-        env["PYTHONPATH"] = str(repo_root / "tametools" / "src")
+        env["PYTHONPATH"] = str(repo_root / "tametools" / "src") + os.pathsep + env.get("PYTHONPATH", "")
         proc = subprocess.run(
             [sys.executable, str(runner)],
             capture_output=True, text=True, env=env, cwd=str(repo_root),

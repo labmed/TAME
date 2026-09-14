@@ -10,7 +10,7 @@ from .evaluation import evaluate_dataset
 from .models import OperationOutput, PipelineResult, TameDataset
 from .plugin_base.manager import configured_plugin_modules, run_plugin
 from .audit import dataset_content_hash
-from .provenance import append_log_entry
+from .provenance import append_log_entry, inherit_logs, run_scope, operation_scope
 from .transforms import anonymize_dataset, harmonize_comparator_thresholds, sample_dataset, split_comparator_columns
 
 
@@ -27,20 +27,19 @@ def execute_work(
     current = dataset
     detailed_log = str(log_level or "detailed").strip().lower() == "detailed"
 
-    for step in steps:
-        input_hash = dataset_content_hash(current)
-        output = _execute_step(current, step, dataset.meta, allow_functions=allow_functions, allow_plugins=allow_plugins)
-        if detailed_log and output.dataset is not None:
-            output.dataset = _logged_work_dataset(
-                output.dataset,
-                step=step,
-                options=ci_get(dataset.meta, step, {}),
-                input_hash=input_hash,
-                output=output,
-            )
-        outputs.append(output)
-        if output.dataset is not None:
-            current = output.dataset
+    with run_scope():
+        for step in steps:
+            with operation_scope(f"WORK:{step}", [current], parameters=ci_get(dataset.meta, step, {})):
+                input_hash = dataset_content_hash(current)
+                output = _execute_step(current, step, dataset.meta, allow_functions=allow_functions, allow_plugins=allow_plugins)
+                target = output.dataset if output.dataset is not None else current
+                output.dataset = inherit_logs(target, current)
+                if detailed_log:
+                    output.dataset = _logged_work_dataset(
+                        output.dataset, step=step, options=ci_get(dataset.meta, step, {}),
+                        input_hash=input_hash, output=output, input_dataset=current)
+                outputs.append(output)
+                current = output.dataset
 
     return PipelineResult(work_name=work_name, final_dataset=current, outputs=outputs)
 
@@ -52,8 +51,11 @@ def _logged_work_dataset(
     options: object,
     input_hash: str,
     output: OperationOutput,
+    input_dataset: TameDataset,
 ) -> TameDataset:
     output_hash = dataset_content_hash(dataset)
+    if output.name == "ANALYZE":
+        options = ci_get(dataset.meta, "ANALYSIS_PLAN", options)
     parameters = {
         "step": step,
         "options": options if isinstance(options, dict) else {},
@@ -69,7 +71,9 @@ def _logged_work_dataset(
         action=f"WORK:{step}",
         message=output.message or "",
         parameters=parameters,
-        warnings=list(output.warnings or []),
+        warnings=list(output.warnings or []), input_dataset=input_dataset,
+        status=output.status, operation_output=output,
+        counts={"ISSUES": len(output.issues or []), "WARNINGS": len(output.warnings or [])},
     )
 
 
@@ -165,6 +169,28 @@ class EdaStepHandler(NamedStepHandler):
             warnings=report.warnings,
             message=f"eda tables={8} warnings={len(report.warnings)}",
         )
+
+
+class AnalysisContractStepHandler(NamedStepHandler):
+    names = frozenset({"CENSOR", "SURVEY_DESCRIBE", "ANALYZE", "CLINICAL_ANALYSIS"})
+
+    def execute(self, context: StepContext) -> OperationOutput:
+        if context.normalized_name in {"ANALYZE", "CLINICAL_ANALYSIS"}:
+            from .planned_analysis import analyze_dataset
+
+            if context.normalized_name == "ANALYZE":
+                if context.options:
+                    raise ValueError("Configure ANALYZE in ANALYSIS_PLAN, not an ANALYZE table")
+                return analyze_dataset(context.dataset)
+            return analyze_dataset(context.dataset, context.options)
+        if context.normalized_name == "CENSOR":
+            from .analysis_contract import derive_censored_results
+
+            return OperationOutput(name=context.step_name, dataset=derive_censored_results(context.dataset),
+                                   message="Derived declared left-censoring representations; released cells retained")
+        from .survey import survey_describe
+
+        return survey_describe(context.dataset, context.options)
 
 
 class EvaluateStepHandler(NamedStepHandler):
@@ -276,6 +302,15 @@ class HarmonizeComparatorStepHandler(NamedStepHandler):
         )
 
 
+class IntegrationStepHandler(NamedStepHandler):
+    names = frozenset({"INTEGRATE"})
+
+    def execute(self, context: StepContext) -> OperationOutput:
+        from .integration import integrate_datasets
+
+        return integrate_datasets([context.dataset])
+
+
 class ColumnsStepHandler(NamedStepHandler):
     names = frozenset({"COLUMNS", "INFO"})
 
@@ -314,18 +349,20 @@ class ExtensionStepHandler:
                 "External plugin modules are disabled. Re-run with allow_plugins=True only for trusted local files."
             )
 
-        return OperationOutput(name=context.step_name, dataset=context.dataset, message="step skipped: no built-in handler")
+        return OperationOutput(name=context.step_name, dataset=context.dataset, message="step skipped: no built-in handler", status="SKIPPED")
 
 
 STEP_HANDLERS: tuple[StepHandler, ...] = (
     ValidateStepHandler(),
     DescribeStepHandler(),
     EdaStepHandler(),
+    AnalysisContractStepHandler(),
     EvaluateStepHandler(),
     AnonymizeStepHandler(),
     SampleStepHandler(),
     SplitComparatorStepHandler(),
     HarmonizeComparatorStepHandler(),
+    IntegrationStepHandler(),
     ColumnsStepHandler(),
     ExtensionStepHandler(),
 )

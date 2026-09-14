@@ -1,6 +1,6 @@
 """시간형(DATE/DATETIME/TIME) 표준화 — ISO 8601 로 정규화.
 
-xlsx(직렬값)·tsv(다양한 문자열) 입력이 혼재해도 일관되게 파싱하여 ISO 8601 로 통일한다(reviewer C-2).
+xlsx(직렬값)·tsv(다양한 문자열) 입력이 혼재해도 일관되게 파싱하여 ISO 8601 로 통일한다.
 태그가 DATETIME 이면 ``YYYY-MM-DDTHH:MM:SS``, DATE 이면 ``YYYY-MM-DD``, TIME 이면 ``HH:MM:SS`` 로 출력한다.
 
 META 로 입력 포맷을 우선 지정할 수 있다(없으면 추론)::

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="tametools"
+    Language="1042"
+    Version="$(var.Version)"
+    Manufacturer="tametools"
+    UpgradeCode="8D6E1BE6-88B7-4CB4-9E61-AD4F1F07317A">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of tametools is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="DefaultFeature" Title="tametools" Level="1">
+      <!-- onedir 폴더 전체(두 exe + _internal 의존성)는 heat.exe 가 harvest.wxs 로 생성한다. -->
+      <ComponentGroupRef Id="HarvestedComponents" />
+      <ComponentGroupRef Id="AppIntegration" />
+    </Feature>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="tametools" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="tametools" />
+      </Directory>
+    </Directory>
+
+    <ComponentGroup Id="AppIntegration">
+      <!-- 설치 폴더를 시스템 PATH 에 추가(CLI: tametools). -->
+      <Component Id="TametoolsPathEnv" Directory="INSTALLFOLDER" Guid="*">
+        <RegistryValue Root="HKLM" Key="Software\tametools" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+        <Environment
+          Id="AddInstallDirToPath"
+          Name="PATH"
+          Value="[INSTALLFOLDER]"
+          Permanent="no"
+          Part="last"
+          Action="set"
+          System="yes" />
+      </Component>
+      <!-- 시작 메뉴에 웹 워크벤치 바로가기. onedir 이므로 실제 경로를 직접 가리킨다(비-advertised). -->
+      <Component Id="TametoolsWebShortcut" Directory="ApplicationProgramsFolder" Guid="*">
+        <Shortcut
+          Id="StartMenuTametoolsWeb"
+          Name="tametools Web Workbench"
+          Target="[INSTALLFOLDER]tametools-web.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <!-- 시작 메뉴(=per-user 데이터) 컴포넌트의 KeyPath 는 HKCU 여야 한다(ICE38/43/57). -->
+        <RegistryValue Root="HKCU" Key="Software\tametools" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- 일반 설치 마법사 UI: 환영 → 설치 폴더 선택(찾아보기) → 준비 → 진행 → 완료. -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <!-- 완료(Finish) 페이지에 PATH 추가 안내를 표시한다. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="설치가 완료되었습니다. 설치 폴더가 시스템 PATH 에 추가되어, 새로 연 명령 프롬프트에서 tametools 명령을 바로 쓸 수 있습니다(이미 열려 있던 창은 다시 열어야 적용됩니다). 시작 메뉴의 'tametools Web Workbench' 로 웹앱을 실행할 수 있습니다." />
+
+    <UIRef Id="WixUI_InstallDir" />
+    <UI>
+      <!-- 라이선스 동의 페이지를 건너뛰고 환영 화면에서 설치 폴더 선택으로 바로 이동한다. -->
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2">NOT Installed</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">1</Publish>
+    </UI>
+  </Product>
+</Wix>

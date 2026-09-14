@@ -19,6 +19,7 @@ import pandas as pd
 
 from tametools.analysis import numeric_series_for
 from tametools.config import ci_get
+from tametools.cellstate import NULL, STATE_VALUE, cell_state
 from tametools.models import ColumnSpec, OperationOutput, TameDataset, merged_column_specs
 from tametools.reporting import chart_spec, with_visualizations
 from tametools.plugin_base.base import register_plugin
@@ -45,11 +46,16 @@ def _resolve(dataset: TameDataset, name: str) -> ColumnSpec | None:
         return None
     if text.lower().startswith("tag:"):
         columns = dataset.columns_with_tag(text.split(":", 1)[1])
-        return columns[0] if columns else None
+        if len(columns) != 1:
+            raise ValueError(f"Unknown or ambiguous column selector: {text}")
+        return columns[0]
+    if text.lower().startswith("id:"):
+        from tametools.analysis_contract import resolve_id
+        return resolve_id(dataset, text[3:])
     for column in dataset.columns:
         if column.name == text:
             return column
-    return None
+    raise ValueError(f"Unknown column selector: {text}")
 
 
 def _string_list(value: Any) -> list[str]:
@@ -169,7 +175,7 @@ _OUTPUT_TAGS: dict[str, tuple[str, ...]] = {
     "df": ("DEGREES_OF_FREEDOM", "NUM"),
     "auc": ("AUC", "NUM"),
     "best_cutoff": ("THRESHOLD", "NUM"),
-    "threshold": ("THRESHOLD", "NUM"),
+    "threshold": ("THRESHOLD", "NUM", "NULLABLE"),
     "sensitivity": ("SENSITIVITY", "NUM"),
     "specificity": ("SPECIFICITY", "NUM"),
     "youden": ("YOUDEN", "NUM"),
@@ -177,6 +183,8 @@ _OUTPUT_TAGS: dict[str, tuple[str, ...]] = {
 
 
 def _header(name: str) -> str:
+    if name.endswith("_n"):
+        return f"[[COUNT::NUM::NULLABLE]]{name}"
     if name in _OUTPUT_TAGS:
         return f"[[{'::'.join(_OUTPUT_TAGS[name])}]]{name}"
     if name in _NUMERIC_NAMES:
@@ -188,7 +196,7 @@ def _header(name: str) -> str:
 
 @register_plugin("METHOD_COMPARISON", description="Passing-Bablok + Deming regression and Bland-Altman between two methods.", roles=(RESULT_ROLE,))
 def method_comparison_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
-    comparator_policy = str(ci_get(options, "COMPARATOR_POLICY", ci_get(dataset.settings(), "CRR", "VALUE"))).upper()
+    from tametools.method_comparison import compare_methods
     bound_results = result_binding(dataset, options)
     result_columns = list(bound_results.columns)
     method_col = _resolve(dataset, str(ci_get(options, "METHOD_COLUMN", ""))) or _first(dataset, "INSTRUMENT")
@@ -196,68 +204,7 @@ def method_comparison_plugin(dataset: TameDataset, meta: dict, step_name: str, o
     keys = _string_list(ci_get(options, "KEY", [])) or _default_keys(dataset)
     keys = list(dict.fromkeys(keys))  # 중복 제거(같은 키 열 중복 시 pivot/merge index 가 깨진다 — pandas 2.x).
 
-    warnings: list[str] = []
-    if not result_columns:
-        warnings.append("Missing RESULT/NUM column.")
-    if method_col is None:
-        warnings.append("Missing METHOD_COLUMN / INSTRUMENT column to define two methods.")
-    if warnings:
-        return _result_output(pd.DataFrame(), step_name, "METHOD_COMPARISON", "REGRESSION", options, warnings)
-
-    rows: list[dict[str, Any]] = []
-    include_source = len(result_columns) > 1
-    for result in result_columns:
-        work = pd.DataFrame({
-            # pandas 2.x 의 pivot_table(aggfunc="mean") 은 object dtype 을 거부하므로 float 로 강제한다.
-            "_value": pd.to_numeric(
-                numeric_series_for(dataset, result, crr_policy=comparator_policy), errors="coerce"
-            ).values,
-            "_method": dataset.df[method_col.name].astype(str).values,
-        })
-        for key in keys:
-            col = _resolve(dataset, key)
-            if col is not None:
-                work[key] = dataset.df[col.name].astype(str).values
-        if test_col is not None:
-            work["_test"] = dataset.df[test_col.name].astype(str).values
-        else:
-            work["_test"] = result.name
-
-        methods = [m for m in pd.unique(work["_method"]) if m and m.lower() != "nan"]
-        if len(methods) < 2:
-            warnings.append(f"Need exactly two methods for {result.name}; found {len(methods)}.")
-            continue
-        method_a, method_b = methods[0], methods[1]
-        pair_keys = [k for k in keys if k in work.columns] + ["_test"]
-
-        for test_name, group in work.groupby("_test", observed=False):
-            wide = group.pivot_table(index=[k for k in pair_keys if k != "_test"] or None,
-                                     columns="_method", values="_value", aggfunc="mean")
-            if method_a not in wide.columns or method_b not in wide.columns:
-                continue
-            paired = wide[[method_a, method_b]].dropna()
-            if len(paired) < 3:
-                continue
-            x = paired[method_a].to_numpy(dtype=float)
-            y = paired[method_b].to_numpy(dtype=float)
-            pb_slope, pb_intercept = _passing_bablok(x, y)
-            dm_slope, dm_intercept = _deming(x, y)
-            diff = y - x
-            bias = float(np.mean(diff))
-            sd_diff = float(np.std(diff, ddof=1)) if len(diff) > 1 else 0.0
-            r = float(np.corrcoef(x, y)[0, 1]) if len(x) > 1 else float("nan")
-            rows.append({
-                **result_source_record(result, include=include_source),
-                "test": test_name, "method_a": method_a, "method_b": method_b, "n": len(paired),
-                "r": round(r, 4),
-                "pb_slope": round(pb_slope, 4), "pb_intercept": round(pb_intercept, 4),
-                "deming_slope": round(dm_slope, 4), "deming_intercept": round(dm_intercept, 4),
-                "bias": round(bias, 4), "sd_diff": round(sd_diff, 4),
-                "lower_loa": round(bias - 1.96 * sd_diff, 4), "upper_loa": round(bias + 1.96 * sd_diff, 4),
-            })
-    table = pd.DataFrame(rows)
-    if table.empty:
-        warnings.append("No test had >=3 paired measurements across the two methods.")
+    table, warnings = compare_methods(dataset, options, result_columns, method_col, test_col, keys)
     return _result_output(table, step_name, "METHOD_COMPARISON", "REGRESSION", options, warnings)
 
 
@@ -310,7 +257,7 @@ def _default_keys(dataset: TameDataset) -> list[str]:
     pid = _first(dataset, "ID(patient)", "PATIENT_ID", "ID")
     if pid is not None:
         keys.append(pid.name)
-    sample = _first(dataset, "ID(sample)", "SAMPLE_ID", "ID(specimen)", "SPECIMEN_ID", "SAMPLE", "SPECIMEN")
+    sample = _first(dataset, "ID(sample)", "SAMPLE_ID", "ID(specimen)", "SPECIMEN_ID", "SAMPLE")
     if sample is not None:
         keys.append(sample.name)
     return keys
@@ -320,6 +267,10 @@ def _default_keys(dataset: TameDataset) -> list[str]:
 
 @register_plugin("GROUP_TEST", description="Compare a numeric result across groups (t-test / Mann-Whitney / Kruskal-Wallis).", roles=(RESULT_ROLE,))
 def group_test_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
+    from tametools.observation_contract import observation_info
+    observation_info(dataset, inference=True)
+    if ci_get(dataset.meta, "SURVEY", None) is not None:
+        raise ValueError("GROUP_TEST is not survey adjusted; use ANALYSIS_PLAN survey contrasts or models")
     comparator_policy = str(ci_get(options, "COMPARATOR_POLICY", ci_get(dataset.settings(), "CRR", "VALUE"))).upper()
     bound_results = result_binding(dataset, options)
     result_columns = list(bound_results.columns)
@@ -460,6 +411,12 @@ def qc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, options
     tea_map = ci_get(options, "TEA", {})  # allowable total error % per level (optional)
     include_source = len(result_columns) > 1
 
+    if mode == "WESTGARD":
+        from tametools.quality_control import evaluate_qc
+        table = evaluate_qc(dataset, result_columns, options)
+        return _result_output(table, step_name, "QC_ANALYSIS", mode, options,
+            ["Basic 1_3s, 2_2s and within-run R_4s against declared baselines; not a validated operational release system."])
+
     if mode in {"PRECISION", "SIGMA"}:
         rows: list[dict[str, Any]] = []
         for result in result_columns:
@@ -480,7 +437,8 @@ def qc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, options
                 rows.append(row)
         return _result_output(pd.DataFrame(rows), step_name, "QC_ANALYSIS", mode, options, warnings)
 
-    if mode in {"LEVEY_JENNINGS", "WESTGARD"}:
+    if mode == "LEVEY_JENNINGS":
+        warnings.append("Retrospective mean/SD estimated from these observations; not fixed-baseline operational QC.")
         rows = []
         for result in result_columns:
             values = numeric_series_for(dataset, result, crr_policy=comparator_policy)
@@ -491,18 +449,17 @@ def qc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, options
                 mean = float(np.mean(v)); sd = float(np.std(v, ddof=1)) if len(v) > 1 else 0.0
                 z = (v - mean) / sd if sd else np.zeros_like(v)
                 for index, (value, zz) in enumerate(zip(v, z), start=1):
-                    violations = _westgard_flags(z, index - 1)
+                    violations = []
                     rows.append({**result_source_record(result, include=include_source),
                                  "level": level, "point": index, "value": round(float(value), 4),
                                  "mean": round(mean, 4), "sd": round(sd, 4), "z": round(float(zz), 3),
                                  "violation": ", ".join(violations) if violations else "NONE"})
         return _result_output(pd.DataFrame(rows), step_name, "QC_ANALYSIS", mode, options, warnings)
 
-    warnings.append(f"Unsupported QC mode: {mode}")
-    return _result_output(pd.DataFrame(), step_name, "QC_ANALYSIS", mode, options, warnings)
+    raise ValueError(f"Unsupported QC mode: {mode}")
 
 
-def _westgard_flags(z: np.ndarray, i: int) -> list[str]:
+def _westgard_flags(z: np.ndarray, i: int, *, same_run: bool = False) -> list[str]:
     flags: list[str] = []
     if abs(z[i]) > 3:
         flags.append("1_3s")
@@ -510,7 +467,9 @@ def _westgard_flags(z: np.ndarray, i: int) -> list[str]:
         flags.append("2_2s")
     if i >= 1 and z[i] < -2 and z[i - 1] < -2:
         flags.append("2_2s")
-    if i >= 1 and abs(z[i] - z[i - 1]) > 4:
+    if same_run and i >= 1 and z[i] > 2 and z[i - 1] < -2:
+        flags.append("R_4s")
+    if same_run and i >= 1 and z[i] < -2 and z[i - 1] > 2:
         flags.append("R_4s")
     return flags
 
@@ -530,13 +489,22 @@ def _lookup_number(mapping: Any, key: str) -> float | None:
 
 @register_plugin("ROC_ANALYSIS", description="ROC / sensitivity-specificity of a numeric score against a binary label.", roles=(RESULT_ROLE,))
 def roc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
-    comparator_policy = str(ci_get(options, "COMPARATOR_POLICY", ci_get(dataset.settings(), "CRR", "VALUE"))).upper()
+    from tametools.observation_contract import observation_info
+    observation_info(dataset, inference=True)
+    comparator_policy = str(ci_get(options, "COMPARATOR_POLICY", "DELETE")).upper()
+    if comparator_policy not in {"DELETE", "VALUE"}:
+        raise ValueError("ROC COMPARATOR_POLICY must be DELETE or explicitly VALUE")
     mode = str(ci_get(options, "MODE", "SUMMARY")).strip().upper()
     bound_scores = result_binding(dataset, options)
     score_columns = list(bound_scores.columns)
     label_col = _resolve(dataset, str(ci_get(options, "LABEL", ""))) or _first(dataset, "LABEL", "OUTCOME", "CLASS")
     positive = str(ci_get(options, "POSITIVE", "")).strip()
-    higher_positive = str(ci_get(options, "DIRECTION", "higher")).strip().lower() != "lower"
+    direction = str(ci_get(options, "DIRECTION", "higher")).strip().lower()
+    if direction not in {"higher", "lower"}:
+        raise ValueError("DIRECTION must be higher or lower")
+    higher_positive = direction == "higher"
+    if mode not in {"SUMMARY", "CURVE"}:
+        raise ValueError("ROC MODE must be SUMMARY or CURVE")
 
     warnings: list[str] = []
     if not score_columns:
@@ -546,18 +514,19 @@ def roc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, option
     if warnings:
         return _result_output(pd.DataFrame(), step_name, "ROC_ANALYSIS", mode, options, warnings)
 
-    label_raw = dataset.df[label_col.name].astype(str)
-    if not positive:
-        uniques = [u for u in pd.unique(label_raw) if u and u.lower() != "nan"]
-        positive = _infer_positive(uniques)
-    y = (label_raw == positive).astype(int)
+    label_raw = dataset.df[label_col.name]
+    y, positive, negative = _binary_labels(label_raw, positive, ci_get(options, "NEGATIVE", None))
+    label_missing_n = int(y.isna().sum())
+    warnings.append("ROC is an unweighted complete-pair analysis; cutoffs are exploratory, not validated diagnostic thresholds.")
+    if ci_get(dataset.meta, "SURVEY", None) is not None:
+        raise ValueError("ROC_ANALYSIS does not implement survey-adjusted ROC; do not discard SURVEY")
 
     rows: list[dict[str, Any]] = []
     if mode == "CURVE":
         include_score = len(score_columns) > 1
         for score_col in score_columns:
             score = numeric_series_for(dataset, score_col, crr_policy=comparator_policy)
-            work = pd.DataFrame({"_score": score.values, "_y": y.values}).dropna(subset=["_score"])
+            work = pd.DataFrame({"_score": score.values, "_y": y.values}).dropna(subset=["_score", "_y"])
             if work["_y"].sum() == 0 or work["_y"].sum() == len(work):
                 warnings.append(f"Label has only one class for score {score_col.name} after filtering; cannot compute ROC.")
                 continue
@@ -569,7 +538,8 @@ def roc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, option
             for p in curve:
                 thr = p["threshold"] if higher_positive else -p["threshold"]
                 row = {
-                    "threshold": round(float(thr), 4),
+                    "threshold": float(thr) if np.isfinite(thr) else NULL,
+                    "threshold_kind": "finite" if np.isfinite(thr) else "all_negative",
                     "sensitivity": round(p["sensitivity"], 4),
                     "specificity": round(p["specificity"], 4),
                     "youden": round(p["sensitivity"] + p["specificity"] - 1, 4),
@@ -581,7 +551,7 @@ def roc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, option
     else:
         for score_col in score_columns:
             score = numeric_series_for(dataset, score_col, crr_policy=comparator_policy)
-            work = pd.DataFrame({"_score": score.values, "_y": y.values}).dropna(subset=["_score"])
+            work = pd.DataFrame({"_score": score.values, "_y": y.values}).dropna(subset=["_score", "_y"])
             if work["_y"].sum() == 0 or work["_y"].sum() == len(work):
                 warnings.append(f"Label has only one class for score {score_col.name} after filtering; cannot compute ROC.")
                 continue
@@ -591,12 +561,15 @@ def roc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, option
             yv = work["_y"].to_numpy(dtype=int)
             curve = _roc_curve(s, yv)
             auc = _auc(curve)
-            best = max(curve, key=lambda p: p["sensitivity"] + p["specificity"] - 1)
+            best = max((p for p in curve if np.isfinite(p["threshold"])), key=lambda p: p["sensitivity"] + p["specificity"] - 1)
             best_cut = best["threshold"] if higher_positive else -best["threshold"]
             rows.append({
-                "score": score_col.name, "label": label_col.name, "positive": positive,
+                "score": score_col.name, "label": label_col.name, "positive": positive, "negative": negative,
+                "input_n": len(dataset.df), "label_missing_n": label_missing_n,
+                "score_missing_n": int(score.isna().sum()), "paired_n": len(work),
+                "excluded_n": len(dataset.df) - len(work), "engine": "scikit-learn",
                 "n_pos": int(yv.sum()), "n_neg": int(len(yv) - yv.sum()),
-                "auc": round(auc, 4), "best_cutoff": round(float(best_cut), 4),
+                "auc": auc, "best_cutoff": float(best_cut),
                 "sensitivity": round(best["sensitivity"], 4), "specificity": round(best["specificity"], 4),
                 "youden": round(best["sensitivity"] + best["specificity"] - 1, 4),
             })
@@ -604,34 +577,38 @@ def roc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, option
     return _result_output(table, step_name, "ROC_ANALYSIS", mode, options, warnings)
 
 
-def _infer_positive(uniques: list[str]) -> str:
-    for candidate in ("1", "positive", "pos", "true", "yes", "abnormal", "disease", "H"):
-        for u in uniques:
-            if u.lower() == candidate:
-                return u
-    return uniques[-1] if uniques else "1"
+def _binary_labels(raw, positive, negative):
+    present = raw.map(lambda value: cell_state(value) == STATE_VALUE)
+    labels = raw.where(present).map(lambda value: str(value) if cell_state(value) == STATE_VALUE else None)
+    common = {"1": "0", "positive": "negative", "true": "false", "yes": "no"}
+    if not positive:
+        if set(labels.dropna()) <= {"0", "1"}:
+            positive = "1"
+        else:
+            raise ValueError("Declare POSITIVE and NEGATIVE codes explicitly")
+    if negative is None:
+        negative = common.get(positive)
+    if not isinstance(negative, str) or not negative or positive == negative:
+        raise ValueError("Declare distinct POSITIVE and NEGATIVE codes explicitly")
+    unknown = set(labels[present]) - {positive, negative}
+    if unknown:
+        raise ValueError("Unknown binary outcome codes: " + repr(sorted(unknown)))
+    return labels.map({positive: 1., negative: 0.}), positive, negative
 
 
 def _roc_curve(score: np.ndarray, y: np.ndarray) -> list[dict[str, float]]:
-    pos = int(y.sum()); neg = int(len(y) - pos)
-    thresholds = np.unique(score)
-    points = []
-    for thr in np.concatenate(([thresholds[0] - 1], thresholds)):
-        predicted = score >= thr
-        tp = int(np.sum(predicted & (y == 1)))
-        fp = int(np.sum(predicted & (y == 0)))
-        sensitivity = tp / pos if pos else 0.0
-        specificity = 1 - (fp / neg) if neg else 0.0
-        points.append({"threshold": float(thr), "sensitivity": sensitivity, "specificity": specificity})
-    return points
+    try:
+        from sklearn.metrics import roc_curve
+    except ImportError as exc:
+        raise ImportError("ROC requires tametools[stats] (scikit-learn)") from exc
+    fpr, tpr, thresholds = roc_curve(y, score, pos_label=1, drop_intermediate=False)
+    return [dict(threshold=float(thr), sensitivity=float(tp), specificity=float(1-fp))
+            for fp, tp, thr in zip(fpr, tpr, thresholds)]
 
 
 def _auc(curve: list[dict[str, float]]) -> float:
-    pts = sorted(((1 - p["specificity"], p["sensitivity"]) for p in curve), key=lambda t: (t[0], t[1]))
-    area = 0.0
-    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-        area += (x1 - x0) * (y0 + y1) / 2
-    return float(area)
+    from sklearn.metrics import auc
+    return float(auc([1-p["specificity"] for p in curve], [p["sensitivity"] for p in curve]))
 
 
 # --------------------------------------------------------------------------- RESULT_TREND

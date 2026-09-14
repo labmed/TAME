@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+pandas
+openpyxl
+tomli
+matplotlib
+python-docx
+pyreadstat==1.3.2
+samplics==0.4.55
+scipy>=1.13

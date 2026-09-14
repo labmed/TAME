@@ -140,14 +140,15 @@ def analysis(ds: TameDataset, dp: TameDataset, dr: TameDataset, group: str) -> N
     o = run_plugin(ds, "REFERENCE_INTERVAL", ds.meta, "RI", {})
     check(group, "C01 참고치 산출", o is not None and len(o.table) > 0, f"행={len(o.table)}")
 
-    o = run_plugin(ds, "ABNORMAL_FLAG", ds.meta, "FLAG", {"MODE": "FLAG"})
+    o = run_plugin(ds, "ABNORMAL_FLAG", ds.meta, "FLAG", {"MODE": "FLAG", "ALLOW_UNDECLARED_UNITS": True})
     flags = set(o.dataset.df["이상플래그"].unique())
     check(group, "C02 이상결과 플래그", {"H", "L", "N"} <= flags, f"플래그={sorted(flags)}")
 
-    o = run_plugin(ds, "ABNORMAL_FLAG", ds.meta, "RATE", {"MODE": "RATE", "GROUP_BY_TAGS": ["GROUP"]})
+    o = run_plugin(ds, "ABNORMAL_FLAG", ds.meta, "RATE", {"MODE": "RATE", "GROUP_BY_TAGS": ["GROUP"], "ALLOW_UNDECLARED_UNITS": True})
     check(group, "C03 이상률 집계", "abnormal_rate" in o.table.columns and len(o.table) > 0, f"행={len(o.table)}")
 
-    o = run_plugin(dp, "METHOD_COMPARISON", dp.meta, "MC", {})
+    dp.meta.setdefault("COLUMN", {}).setdefault(dp.first_column_with_tag("RESULT").name, {})["UNIT"] = "U/L"
+    o = run_plugin(dp, "METHOD_COMPARISON", dp.meta, "MC", {"METHOD_A": "test_analyzer_2", "METHOD_B": "test_analyzer_1"})
     row = o.table.set_index("test").loc["AST"]
     ok = abs(float(row["pb_slope"]) - 1.05) < 0.1
     check(group, "C04 방법비교 회귀", ok, f"AST PB기울기={row['pb_slope']} (기대≈1.05)")

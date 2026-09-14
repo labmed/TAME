@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from importlib import metadata as importlib_metadata
+from ._version import __version__
 from importlib.util import find_spec
 import json
 from numbers import Number
@@ -229,7 +229,16 @@ def _main(argv: list[str] | None = None) -> int:
         _print_review_validation_summary(validation, args.path)
         return 1 if args.fail_on_issues and validation.issues else 0
 
-    return _run_runtime_command(args)
+    from .provenance import run_scope, operation_scope
+    destination = getattr(args, 'output', None)
+    failures = (Path(destination).parent if destination and destination != '-' else Path.cwd()) / 'tametools_failed_runs'
+    with run_scope(failure_directory=failures) as run:
+        try:
+            with operation_scope(_CURRENT_CLI_OPERATION, parameters={'command': _CURRENT_CLI_COMMAND_TEXT, 'argv': list(argv)}):
+                return _run_runtime_command(args)
+        finally:
+            for path in run.failure_files:
+                print('failure_log: ' + path, file=sys.stderr)
 
 
 def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.ArgumentParser]]:
@@ -268,8 +277,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
         sub.add_argument(
             "--log-level",
             choices=["none", "simple", "detailed"],
-            default="simple",
-            help="Logging written to output datasets. Default: simple (CLI command only); detailed also records internal ACTION/WORK steps.",
+            default="detailed" if sub.prog.split()[-1] in {"run", "run-pipeline", "run-action-pipeline"} else "simple",
+            help="Logging written to output datasets. Default: detailed for chains, simple for single commands. Use detailed for internal ACTION/WORK/COMMAND records.",
         )
 
     help_parser = add_command(
@@ -432,6 +441,30 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     add_view_arg(eda_parser)
     eda_parser.add_argument("--comparator-policy", choices=["DELETE", "VALUE", "KEEP", "HARMONIZE"], default=None, help="How to treat numeric values with inequality comparators.")
 
+    download_parser = add_command("download", help="Download and verify explicitly selected public data.")
+    download_parser.add_argument("provider", choices=["nhanes"])
+    from .nhanes import CYCLES
+    download_parser.add_argument("--cycle", choices=list(CYCLES), required=True, help="NHANES release; no automatic cycle pooling.")
+    download_parser.add_argument("--files", nargs="+", required=True, help="Official file IDs without extensions, e.g. DEMO_J BIOPRO_J HSCRP_J.")
+    download_parser.add_argument("--output-dir", required=True, help="Directory for sources and a checksum manifest; cached files are verified, never silently replaced.")
+    download_parser.add_argument("--offline", action="store_true", help="Verify the selected cached files without network access.")
+    download_parser.add_argument("--expected-manifest", help="Optional JSON filename-to-SHA256 table pinning every selected XPT/codebook.")
+    download_parser.add_argument("--timeout", type=float, default=45, help="Per-request timeout in seconds (1-300).")
+
+    analyze_parser = add_command("analyze", help="Run a declared analysis plan or a named plugin.",
+        description="Run ANALYSIS_PLAN when PLUGIN is omitted. Use 'tametools plugins FILE' to discover plugin names.",
+        epilog="Examples:\n  tametools analyze nhanes.tame --output-dir report --docx\n  tametools analyze data.tame CLINICAL_STATS")
+    add_input_arg(analyze_parser)
+    add_meta_arg(analyze_parser)
+    analyze_parser.add_argument("plugin", nargs="?", metavar="PLUGIN", help="Plugin name from 'tametools plugins FILE'. Omit to execute ANALYSIS_PLAN.")
+    analyze_parser.add_argument("--output", help="Named-plugin mode only: transformed dataset output.")
+    add_log_level_arg(analyze_parser)
+    analyze_parser.add_argument("--allow-plugins", action="store_true", help="Named-plugin mode only: allow trusted external Python plugins.")
+    analyze_parser.add_argument("--option", action="append", default=[], metavar="KEY=VALUE", help="Named-plugin mode only: repeatable plugin options.")
+    analyze_parser.add_argument("--plan", help="Optional standalone TOML plan overriding embedded ANALYSIS_PLAN; the executed plan is retained in the report manifest.")
+    analyze_parser.add_argument("--output-dir", help="New directory for aggregate CSVs, charts and a reproducibility manifest.")
+    analyze_parser.add_argument("--docx", action="store_true", help="Also write a Word report; requires --output-dir.")
+
     evaluate_parser = add_command("evaluate", help="Evaluate workflow effort and reproducibility metadata.", description="Evaluate a dataset and optional baseline workflow metrics.")
     add_input_arg(evaluate_parser)
     evaluate_parser.add_argument("--meta", help="Optional external META .tame file.")
@@ -453,9 +486,17 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     )
     add_input_arg(logs_parser)
     logs_parser.add_argument("--meta", help="Optional external META .tame file.")
+    logs_parser.add_argument("--full", action="store_true", help="Show the wide legacy table. Default: grouped, compact timeline.")
     logs_parser.add_argument("--json", action="store_true", help="Print full log entries as JSON.")
     logs_parser.add_argument("--limit", type=int, default=0, help="Show only the last N entries. Default: all.")
     logs_parser.add_argument("--reverse", action="store_true", help="Show newest entries first.")
+
+    audit_parser = add_command('audit', help='Check recorded history and current data/settings hashes.',
+        description='Check LOG links, contexts and current DATA/controls. This does not replay past analysis.')
+    add_input_arg(audit_parser)
+    audit_parser.add_argument('--meta')
+    audit_parser.add_argument('--json', action='store_true')
+    audit_parser.add_argument('--artifacts-dir', help='Directory containing the recorded result files.')
 
     clear_log_parser = add_command(
         "clear-log",
@@ -495,8 +536,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
 
     run_plugin_parser = add_command(
         "run-plugin",
-        aliases=("analyze",),
-        help="Run an analysis plugin. Alias for new users: analyze.",
+        help="Run an analysis plugin; equivalent to analyze FILE PLUGIN.",
         description="Run an analysis plugin. Use 'tametools plugins FILE' to discover plugin names.",
         epilog=(
             "Examples:\n"
@@ -563,6 +603,12 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     init_parser.add_argument("input", metavar="INPUT", help="Input .xlsx/.csv/.tsv table.")
     init_parser.add_argument("--output", required=True, help="Output .tame file.")
     init_parser.add_argument("--sheet", help="Worksheet name to use for a multi-sheet xlsx.")
+    init_parser.add_argument("--definitions", help="Reviewed TOML definitions generated from the init review template.")
+    init_mode = init_parser.add_mutually_exclusive_group()
+    init_mode.add_argument("--interactive", dest="interactive", action="store_true", help="Review all SEX/AGE values and configure normalization and age groups now.")
+    init_mode.add_argument("--no-interactive", dest="interactive", action="store_false", help="Never prompt; apply --definitions or report unresolved meanings.")
+    init_parser.set_defaults(interactive=None)
+    init_parser.add_argument("--require-reviewed", action="store_true", help="Return status 2 if required interpretation definitions remain unresolved; starter and review are still written.")
 
     normalize_categories_parser = add_command(
         "normalize-categories",
@@ -686,6 +732,13 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     merge_parser.add_argument("--num-conflict", choices=["strict", "promote", "split", "harmonize"], default="promote", help="How to resolve numeric tag conflicts.")
     merge_parser.add_argument("--no-source-column", action="store_true", help="Do not add a source column.")
 
+    integrate_parser = add_command("integrate", help="Integrate explicitly mapped compatible measurements.")
+    integrate_parser.add_argument("inputs", nargs="+", help="Source .tame/.xlsx files with SOURCE and measurement metadata.")
+    integrate_parser.add_argument("--profile", help="Explicit TOML integration profile; otherwise use identical embedded profiles.")
+    integrate_parser.add_argument("--output", help="Integrated .tame/.xlsx output; required unless --preview.")
+    integrate_parser.add_argument("--preview", action="store_true", help="Validate and show conversion plan without writing output.")
+    add_log_level_arg(integrate_parser)
+
     export_parser = add_command("export", help="Export data and metadata to external formats.", description="Export data and metadata to CSV/TSV/JSONL/SQL/Parquet/Feather/R bundle formats.")
     add_input_arg(export_parser)
     export_parser.add_argument("--meta", help="Optional external META .tame file.")
@@ -746,7 +799,7 @@ Command groups:
   First checks:       check, review/inspect, validate, info, columns, states, describe
   Fix/preprocess:    fix, preprocess, actions, run-action, action-pipelines
   Analyze/report:    plugins, analyze, eda, ri-plan, evaluate
-  Convert/export:    convert/save, export, tags-to-meta, tags-to-header, merge
+  Convert/export:    convert/save, export, tags-to-meta, tags-to-header, merge, integrate
   Audit/logs:        logs/log, clear-log, verify
   Utilities:         anonymize, sample, split-comparator, harmonize-comparator,
                      extract-images, embed-images, split-tame, attach-meta, import-xlsx
@@ -761,7 +814,6 @@ def _canonical_command(command: str) -> str:
     aliases = {
         "inspect": "review",
         "convert": "save",
-        "analyze": "run-plugin",
         "preprocess": "run-action-pipeline",
         "log": "logs",
     }
@@ -769,11 +821,7 @@ def _canonical_command(command: str) -> str:
 
 
 def _version_text() -> str:
-    try:
-        version = importlib_metadata.version("tametools")
-    except importlib_metadata.PackageNotFoundError:
-        version = "0.2.0"
-    return f"tametools {version}"
+    return f"tametools {__version__}"
 
 
 def _print_quickstart() -> None:
@@ -819,6 +867,7 @@ Fix and preprocess:
   tametools preprocess data.tame DEFAULT --output cleaned.tame
 
 Analyze:
+  tametools analyze nhanes.tame --output-dir analysis-report --docx
   tametools plugins data.tame
   tametools analyze data.tame CLINICAL_STATS
   tametools analyze data.tame REFERENCE_INTERVAL --option MIN_N=120
@@ -1072,6 +1121,43 @@ def _run_runtime_command(args) -> int:
             _print_table("summary", frame, view=args.view)
         return 0
 
+    if args.command == "download":
+        from .nhanes import download_nhanes
+
+        result = download_nhanes(args.output_dir, cycle=args.cycle, files=args.files, offline=args.offline,
+                                 expected_manifest=args.expected_manifest, timeout=args.timeout, progress=print)
+        print("manifest: " + result["manifest"])
+        print("NCHS statistical-use terms: " + result["data_use_url"])
+        return 0
+
+    if args.command == "analyze":
+        if args.plugin is not None:
+            if args.plan or args.output_dir or args.docx:
+                raise ValueError("Do not combine named-plugin and ANALYSIS_PLAN options")
+            args.command = "run-plugin"
+            return _run_runtime_command(args)
+        if args.output or args.allow_plugins or args.option:
+            raise ValueError("--output, --allow-plugins and --option require a named PLUGIN; use --plan/--output-dir for ANALYSIS_PLAN")
+        from .planned_analysis import analyze_dataset, write_analysis_report
+
+        if args.docx and not args.output_dir:
+            raise ValueError("--docx requires --output-dir")
+        if args.output_dir and Path(args.output_dir).exists():
+            raise ValueError("Analysis output directory already exists; choose a new directory")
+        dataset = _load_dataset(args.path, meta_path=args.meta)
+        from .toml_compat import loads as loads_toml
+        plan = loads_toml(Path(args.plan).read_text(encoding="utf-8")) if args.plan else None
+        result = analyze_dataset(dataset, plan)
+        print(result.message)
+        for warning in result.warnings or []:
+            print(f"warning: {warning}")
+        for name, table in (result.tables or {}).items():
+            _print_table(name, table)
+        if args.output_dir:
+            for path in write_analysis_report(result, args.output_dir, docx=args.docx):
+                print(f"saved: {path}")
+        return 0
+
     if args.command == "eda":
         dataset = _load_dataset(args.path, meta_path=args.meta)
         report = exploratory_data_analysis(dataset, comparator_policy=args.comparator_policy)
@@ -1114,6 +1200,22 @@ def _run_runtime_command(args) -> int:
             print(f"saved: {args.output_dir}")
         return 0
 
+    if args.command == 'audit':
+        from .provenance_audit import verify_history
+        report = verify_history(_load_dataset(args.path, meta_path=args.meta), artifacts_dir=args.artifacts_dir)
+        if args.json:
+            _print_json(report)
+        else:
+            for key, status in report['checks'].items():
+                print(f'{key}: {status}')
+            print(f"checked_events: {report['checked_events']} legacy_events: {report['legacy_events']}")
+            for issue in [*report['errors'], *report['missing']]:
+                print(issue)
+            print(report['scope'])
+            for step in report['unsuccessful_steps']:
+                print(f"{step['status']}: {step['operation']}")
+        return 1 if 'FAIL' in report['checks'].values() else 0
+
     if args.command == "logs":
         dataset = _load_dataset(args.path, meta_path=args.meta)
         entries = _dataset_log_entries(dataset)
@@ -1123,9 +1225,21 @@ def _run_runtime_command(args) -> int:
             entries = entries[: args.limit] if args.reverse else entries[-args.limit:]
         if args.json:
             _print_json(entries)
-        else:
+        elif args.full:
             _print_table("logs", _log_entries_frame(entries))
             print(f"entries: {len(entries)}")
+        else:
+            from .provenance_audit import history_payload
+            shown = dataset.replace(meta={**dataset.meta, 'LOG': entries})
+            for group in history_payload(shown)['groups']:
+                counts = group['counts']
+                print(f"{group['index']}. [{group['status']}] {group['label']}")
+                print(f"   {group['timestamp']} | input_rows={counts.get('INPUT_ROWS', 'unrecorded')} output_rows={counts.get('OUTPUT_ROWS', 'unrecorded')}")
+                for mapping in group['mappings']:
+                    print('   ' + mapping['SOURCE'] + ': ' + ', '.join(f'{k} -> {v}' for k,v in mapping['VALUES'].items()))
+                print('   ' + str(group['summary']))
+            print(f"entries: {len(entries)}")
+            print('Details: logs FILE --json / --full. Scoped checks: audit FILE.')
         return 0
 
     if args.command == "clear-log":
@@ -1317,7 +1431,7 @@ def _run_runtime_command(args) -> int:
         return 0
 
     if args.command == "verify":
-        from .audit import verify_reproducible
+        from .provenance_audit import verify_pipeline_reproducible
 
         # execute_work/available_works 는 모듈 전역(lazy import). 여기서 지역 import 하면
         # 같은 함수 앞쪽의 run 핸들러에서 UnboundLocalError 가 나므로 전역을 그대로 사용한다.
@@ -1333,12 +1447,15 @@ def _run_runtime_command(args) -> int:
         def _run_once():
             return execute_work(
                 dataset, work, allow_functions=args.allow_functions, allow_plugins=args.allow_plugins
-            ).final_dataset
+            )
 
-        result = verify_reproducible(_run_once, runs=2)
+        result = verify_pipeline_reproducible(_run_once)
         print(f"work: {work}")
         print(f"hashes: {', '.join(result['hashes'])}")
         print(f"reproducible: {str(result['reproducible']).lower()}")
+        print('scope: current work executed twice; DATA, controls and computed tables/charts compared; historical replay NOT_CHECKED')
+        for reason in result['reasons']:
+            print('reason: ' + reason)
         return 0 if result["reproducible"] else 1
 
     if args.command == "stamp":
@@ -1376,7 +1493,7 @@ def _run_runtime_command(args) -> int:
             for i, name in enumerate(sheets, 1):
                 print(f"  {i}. {name}")
             try:
-                if not _sys.stdin.isatty():
+                if args.interactive is False or not (args.interactive is True or _sys.stdin.isatty()):
                     raise EOFError
                 choice = input("select sheet (number or name): ").strip()
             except EOFError:
@@ -1393,13 +1510,28 @@ def _run_runtime_command(args) -> int:
             print(f"error: sheet '{sheet}' not found. available: {', '.join(sheets)}")
             return 2
 
-        result = init_from_table(args.input, args.output, sheet=sheet)
+        interactive = args.interactive if args.interactive is not None else _sys.stdin.isatty()
+        result = init_from_table(args.input, args.output, sheet=sheet, definitions_path=args.definitions, interactive=interactive)
         print(f"created: {args.output}")
         if result["sheet"]:
             print(f"source_sheet: {result['sheet']}")
         print("inferred (column -> [[tag]] : datatype) — review before use:")
         for name, tag, dtype in result["columns"]:
             print(f"  {name} -> [[{tag}]] : {dtype}")
+        review = result["review"]
+        for profile in review["output_profiles"]:
+            print(f"  {profile['semantic']} [{profile['column']}]: scanned {profile['rows_scanned']} rows, recognized {profile['recognized_cells']}, unrecognized {profile['unrecognized_cells']}")
+        print(f"interpretation review: {review['required_definitions']} required, {review['unresolved_definitions']} total unresolved definitions")
+        for issue in review["issues"]:
+            if issue["status"] == "NEEDS_DEFINITION":
+                print(f"  {issue['code']} [{issue['column']}] ({issue['affected_cells']} cells): {issue['message']}")
+        print(f"review details: {result['review_path']}")
+        print(f"definitions template: {result['definitions_template']}")
+        print(f"replayable init choices: {result['decisions_path']}")
+        if review["unresolved_definitions"]:
+            print('Next: use init --interactive for SEX/AGE decisions, or review the template and rerun with --no-interactive --definitions FILE.')
+        if args.require_reviewed and review["required_definitions"]:
+            return 2
         return 0
 
     if args.command == "normalize-categories":
@@ -1603,6 +1735,26 @@ def _run_runtime_command(args) -> int:
         if args.output:
             _save_dataset(transformed, args.output)
             print(f"saved: {args.output}")
+        return 0
+
+    if args.command == "integrate":
+        from .integration import integrate_datasets
+        from .toml_compat import loads as loads_toml
+
+        if not args.preview and not args.output:
+            raise ValueError("integrate requires --output unless --preview is specified")
+        if args.output and _path_kind(args.output) not in {"tame", "xlsx"}:
+            raise ValueError("integrate requires a complete .tame or .xlsx output to retain provenance")
+        profile = loads_toml(Path(args.profile).read_text(encoding="utf-8")) if args.profile else None
+        datasets = [_load_dataset(path) for path in args.inputs]
+        result = integrate_datasets(datasets, profile)
+        _print_table("integration_plan", result.table)
+        for warning in result.warnings or []:
+            print(f"warning: {warning}")
+        if not args.preview:
+            _save_dataset(result.dataset, args.output, source_paths=args.inputs)
+            print(f"saved: {args.output}")
+        print(result.message)
         return 0
 
     if args.command == "merge":
@@ -2017,7 +2169,12 @@ def _format_cli_error(exc: BaseException) -> str:
     return f"Error: operation failed. {exc}"
 
 
-def _load_dataset(path: str, *, meta_path: str | None = None):
+def _load_dataset(*args, **kwargs):
+    from .provenance import tracked_input
+    return tracked_input(_load_dataset_untracked)(*args, **kwargs)
+
+
+def _load_dataset_untracked(path: str, *, meta_path: str | None = None):
     if _is_stdin_path(path):
         if _is_stdin_path(meta_path):
             raise ValueError("stdin '-' can be used for the data file or META file, not both.")
@@ -2048,36 +2205,23 @@ def _load_dataset(path: str, *, meta_path: str | None = None):
 
 
 def _dataset_log_entries(dataset) -> list[dict]:
-    log = dataset.meta.get("LOG")
-    if isinstance(log, list):
-        return [dict(entry) for entry in log if isinstance(entry, dict)]
-    if isinstance(log, dict):
-        entries = log.get("ENTRIES", [])
-        if isinstance(entries, list):
-            return [dict(entry) for entry in entries if isinstance(entry, dict)]
-    return []
+    from .provenance import log_entries
+    return log_entries(dataset)
 
 
 def _dataset_without_logs(dataset):
     meta = dict(dataset.meta)
-    meta.pop("LOG", None)
+    for key in list(meta):
+        if str(key).upper() in {"LOG", "PROVENANCE"}:
+            del meta[key]
     raw_sections = dict(dataset.raw_sections)
     raw_sections["META"] = dumps_toml(meta) if meta else ""
     return dataset.replace(meta=meta, raw_sections=raw_sections)
 
 
 def _dataset_with_inherited_log(dataset, parent_dataset):
-    parent_entries = _dataset_log_entries(parent_dataset)
-    if not parent_entries:
-        return dataset
-    entries = _dataset_log_entries(dataset)
-    if entries[: len(parent_entries)] == parent_entries:
-        return dataset
-    meta = dict(dataset.meta)
-    meta["LOG"] = [*parent_entries, *entries]
-    raw_sections = dict(dataset.raw_sections)
-    raw_sections["META"] = dumps_toml(meta)
-    return dataset.replace(meta=meta, raw_sections=raw_sections)
+    from .provenance import inherit_logs
+    return inherit_logs(dataset, parent_dataset)
 
 
 def _dataset_with_single_action_log(dataset, input_dataset, action_name: str, output):
@@ -2097,7 +2241,8 @@ def _dataset_with_single_action_log(dataset, input_dataset, action_name: str, ou
     }
     return append_log_entry(
         dataset,
-        action=f"ACTION:{action_name}",
+        action=f"ACTION:{action_name}", input_dataset=input_dataset, operation_output=output,
+        effective_parameters=action_config,
         message=output.message or "",
         parameters=params,
         warnings=list(output.warnings or []),
@@ -2167,6 +2312,8 @@ def _save_dataset(
     source_paths=None,
 ) -> None:
     if _is_stdout_path(path):
+        if audit and _CURRENT_CLI_LOG_LEVEL != 'none':
+            dataset = _dataset_with_cli_save_log(dataset, 'stdout', source_paths=source_paths)
         with tempfile.TemporaryDirectory(prefix="tametools_stdout_") as tmpdir:
             tmp_path = Path(tmpdir) / "stdout.tame"
             write_tame(tmp_path, dataset, tag_storage=tag_storage)

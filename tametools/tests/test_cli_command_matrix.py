@@ -336,7 +336,7 @@ EXECUTION_CASES = [
     ("harmonize_comparator_all", lambda s: ["harmonize-comparator", str(s.comparator), "--exact-handling", "all"], "[harmonization_preview]"),
     ("extract_images", lambda s: ["extract-images", str(s.image), "--output-dir", str(s.root / "images"), "--output", str(s.root / "image_paths.tame")], "[images]", 0, None, lambda s: [s.root / "images", s.root / "image_paths.tame"]),
     ("embed_images", lambda s: ["embed-images", str(s.root / "image_paths.tame"), "--base-dir", str(s.root), "--output", str(s.root / "image_embedded.tame")], "[images]", 0, lambda s: _prepare_extracted_image_fixture(s), lambda s: [s.root / "image_embedded.tame"]),
-    ("merge_two_files", lambda s: ["merge", str(s.base), str(s.base), "--output", str(s.root / "merged.tame")], "saved:", 0, None, lambda s: [s.root / "merged.tame"]),
+    ("merge_two_files", lambda s: ["merge", str(s.base), str(s.base), "--label", "first", "--label", "second", "--output", str(s.root / "merged.tame")], "saved:", 0, None, lambda s: [s.root / "merged.tame"]),
     ("merge_no_source", lambda s: ["merge", str(s.base), str(s.base), "--no-source-column", "--output", str(s.root / "merged_no_source.tame")], "rows:", 0, None, lambda s: [s.root / "merged_no_source.tame"]),
     ("export_csv", lambda s: ["export", str(s.base), str(s.root / "out.csv")], "format: csv", 0, None, lambda s: [s.root / "out.csv"]),
     ("export_jsonl", lambda s: ["export", str(s.base), str(s.root / "out.jsonl")], "format: jsonl", 0, None, lambda s: [s.root / "out.jsonl"]),

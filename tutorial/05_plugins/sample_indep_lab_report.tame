@@ -8,6 +8,13 @@ CRR = "VALUE"
 
 [PLUGINS]
 MODULES = ["tutorial.plugin_examples.indep_lab_report_plugin"]
+
+[COLUMN."측정치"]
+UNIT = "U/L"
+[COLUMN."하한"]
+UNIT = "U/L"
+[COLUMN."상한"]
+UNIT = "U/L"
 </META>
 <DATA>
 [[ID(patient)::STR]]수진자코드	[[ITEM::TESTNAME::CATEGORY]]검사명	[[RESULT::<NUM>]]측정치	[[REF_LOW::NUM]]하한	[[REF_HIGH::NUM]]상한	[[RESULT_TIME::DATETIME]]보고시각	[[GROUP::CATEGORY]]기관

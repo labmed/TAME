@@ -1,0 +1,21 @@
+{
+  "sexColumn": "Sex",
+  "sourceColumn": "시트명",
+  "outputName": "Sex_standard",
+  "mappings": [
+    {
+      "source": "A_0_1",
+      "values": {
+        "0": "female",
+        "1": "male"
+      }
+    },
+    {
+      "source": "B_1_2",
+      "values": {
+        "1": "female",
+        "2": "male"
+      }
+    }
+  ]
+}

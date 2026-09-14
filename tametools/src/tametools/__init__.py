@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ._version import __version__
 from importlib import import_module
 from typing import Any
 
@@ -81,6 +82,8 @@ _EXPORTS = {
     "standardize_age_dataset": ".age",
     "standardize_age_value": ".age",
     "standardize_sex_dataset": ".sex",
+    "normalize_sex_by_source": ".sex_normalization",
+    "sex_normalization_preview": ".sex_normalization",
     "tag_catalog_payload": ".tag_catalog",
     "tag_placement_table": ".tag_placement",
     "tags_to_header": ".tag_placement",

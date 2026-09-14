@@ -52,10 +52,12 @@ MULTI_AUTOVERIFICATION = textwrap.dedent(
     VALIDATE_ERROR = "REPORT"
 
     [COLUMN.AST.PIVOT_CONTEXT]
+    UNIT = "U/L"
     REF_LOW = "0"
     REF_HIGH = "40"
 
     [COLUMN.ALT.PIVOT_CONTEXT]
+    UNIT = "U/L"
     REF_LOW = "10"
     REF_HIGH = "80"
     </META>

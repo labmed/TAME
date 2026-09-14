@@ -70,6 +70,7 @@ class OperationOutput:
     issues: list[ValidationIssue] | None = None
     warnings: list[str] | None = None
     message: str | None = None
+    status: str = "SUCCEEDED"
 
 
 @dataclass

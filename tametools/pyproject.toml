@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tametools"
-version = "0.2.0"
-description = "Tag-first TAME tools scaffold"
+version = "0.4.0"
+description = "Metadata-preserving clinical data workflows and analysis with TAME"
 requires-python = ">=3.10"
 dependencies = [
   "pandas",
@@ -15,11 +15,30 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+analysis = [
+  "statsmodels>=0.14,<0.16",
+  "scikit-learn==1.7.2",
+  "samplics==0.4.55",
+  "scipy>=1.13",
+  "matplotlib",
+  "python-docx",
+]
+nhanes = [
+  "pyreadstat==1.3.2",
+]
+integration = [
+  "pint==0.24.4",
+]
+survey = [
+  "samplics==0.4.55",
+  "scipy>=1.13",
+]
 parquet = [
   "pyarrow",
 ]
 stats = [
   "scipy",
+  "scikit-learn==1.7.2",
 ]
 report = [
   "matplotlib",

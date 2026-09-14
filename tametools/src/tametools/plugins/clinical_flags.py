@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 
 from tametools.analysis import numeric_series_for
-from tametools.cellstate import NULL
+from tametools.cellstate import NULL, STATE_VALUE, cell_state
 from tametools.config import ci_get
 from tametools.models import ColumnSpec, OperationOutput, TameDataset, merged_column_specs
 from tametools.pandas_compat import concat_dataframes
@@ -35,53 +35,63 @@ def _first(dataset: TameDataset, *tags: str) -> ColumnSpec | None:
 
 
 def _flag_series(value: pd.Series, low: pd.Series, high: pd.Series) -> pd.Series:
-    flags = pd.Series("", index=value.index, dtype=object)
-    known = value.notna()
-    is_low = known & low.notna() & (value < low)
-    is_high = known & high.notna() & (value > high)
-    flags[known] = "N"
-    flags[is_low] = "L"
-    flags[is_high] = "H"
-    flags[~known] = ""
-    return flags
+    from tametools.reference_flags import interval_flag
+    return pd.Series([interval_flag(v, lo, hi)[0] for v, lo, hi in zip(value, low, high)], index=value.index)
 
 
 @register_plugin("ABNORMAL_FLAG", description="Flag results H/L/N vs REF_LOW/REF_HIGH and summarize abnormal rate.", roles=(RESULT_ROLE,))
 @register_plugin("FLAG_ABNORMAL", description="Alias of ABNORMAL_FLAG.", roles=(RESULT_ROLE,))
 def abnormal_flag_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
     mode = str(ci_get(options, "MODE", ci_get(meta, "MODE", "FLAG"))).strip().upper()
-    comparator_policy = str(ci_get(options, "COMPARATOR_POLICY", ci_get(dataset.settings(), "CRR", "VALUE"))).upper()
-
-    result = _first(dataset, "RESULT", "NUM", "<NUM>")
-    ref_low = _first(dataset, "REF_LOW")
-    ref_high = _first(dataset, "REF_HIGH")
-    context_results = _pivot_context_result_columns(dataset) if ref_low is None and ref_high is None else []
-
-    warnings: list[str] = []
-    if result is None and not context_results:
-        warnings.append("Missing required RESULT/NUM column.")
-    if ref_low is None and ref_high is None and not context_results:
-        warnings.append("Missing REF_LOW and REF_HIGH columns; cannot flag abnormal results.")
-    if warnings:
-        return _empty_output(step_name, mode, options, warnings)
-
-    if context_results:
-        if mode == "FLAG":
-            return _pivot_context_flag_mode(dataset, context_results, comparator_policy, step_name, options, warnings)
-        if mode == "RATE":
-            return _pivot_context_rate_mode(dataset, context_results, comparator_policy, step_name, options, warnings)
+    from tametools.reference_flags import reference_flags
+    if mode not in {"FLAG", "RATE"}:
         raise ValueError(f"Unsupported ABNORMAL_FLAG MODE: {mode}")
-
-    value = numeric_series_for(dataset, result, crr_policy=comparator_policy)
-    low = numeric_series_for(dataset, ref_low, crr_policy=comparator_policy) if ref_low else pd.Series(float("nan"), index=value.index)
-    high = numeric_series_for(dataset, ref_high, crr_policy=comparator_policy) if ref_high else pd.Series(float("nan"), index=value.index)
-    flags = _flag_series(value, low, high)
-
-    if mode == "FLAG":
-        return _flag_mode(dataset, flags, step_name, options, warnings)
+    if ci_get(options, "COMPARATOR_POLICY", "INTERVAL") != "INTERVAL":
+        raise ValueError("Reference interpretation uses INTERVAL, not concentration substitution")
+    results = list(result_binding(dataset, options).columns)
+    if not results:
+        return _empty_output(step_name, mode, options, ["Missing quantitative RESULT column"])
+    legacy = ci_get(options, "ALLOW_UNDECLARED_UNITS", False)
+    if type(legacy) is not bool:
+        raise ValueError("ALLOW_UNDECLARED_UNITS must be boolean")
+    frame, columns, metadata = dataset.df.copy(), list(dataset.columns), deepcopy(dataset.meta)
+    metadata.setdefault("COLUMN", {})
+    rows, warnings = [], []
+    for result in results:
+        flags, reasons, messages = reference_flags(dataset, result, allow_undeclared_units=legacy)
+        warnings.extend(messages)
+        if mode == "FLAG":
+            base = str(ci_get(options, "FLAG_COLUMN", FLAG_COLUMN_NAME))
+            name = _unique_column_name(base if len(results) == 1 else result.name + "_" + base, frame.columns)
+            reason_name = _unique_column_name(name + "_reason", [*frame.columns, name])
+            for label, values, tags in [(name, flags, ("FLAG", "INTERPRETATION", "CATEGORY")),
+                                         (reason_name, reasons, ("REVIEW_REASON", "CATEGORY"))]:
+                frame[label] = values.values
+                columns.append(ColumnSpec(build_header(label, tags), label, tags))
+                metadata["COLUMN"][label] = {"SOURCE_RESULT": result.name, "INTERPRETATION_POLICY": "INTERVAL"}
+                if ci_get(dataset.column_metadata(result), "PIVOT_CONTEXT", None) is not None:
+                    metadata["COLUMN"][label]["REFERENCE_SOURCE"] = "PIVOT_CONTEXT"
+            rows.extend({"test": result.name, "flag": key, "count": int(count)} for key, count in flags.value_counts().items())
+        else:
+            groups = _rate_group_columns(dataset, options, include_item=True)
+            work = dataset.df[groups].copy()
+            work["_flag"] = flags
+            for key, group in (work.groupby(groups, dropna=False, observed=True) if groups else [((), work)]):
+                key = key if isinstance(key, tuple) else (key,)
+                counts = group._flag.value_counts()
+                n = int(group._flag.isin(["N", "H", "L"]).sum())
+                high, low = int(counts.get("H", 0)), int(counts.get("L", 0))
+                rows.append({**dict(zip(groups, key)), "test": result.name, "total_n": len(group),
+                    "n": n, "evaluated_n": n, "not_evaluated_n": int(counts.get("NE", 0)),
+                    "indeterminate_n": int(counts.get("IND", 0)), "high_n": high, "low_n": low,
+                    "abnormal_n": high + low, "abnormal_rate": 100 * (high + low) / n if n else NULL,
+                    "high_rate": 100 * high / n if n else NULL, "low_rate": 100 * low / n if n else NULL})
+    table = pd.DataFrame(rows)
     if mode == "RATE":
-        return _rate_mode(dataset, flags, step_name, options, warnings)
-    raise ValueError(f"Unsupported ABNORMAL_FLAG MODE: {mode}")
+        return _summary_output(dataset, table, step_name, mode, options, warnings)
+    return OperationOutput(name=step_name, dataset=dataset.replace(df=frame, columns=columns, meta=metadata),
+        table=table, warnings=list(dict.fromkeys(warnings)), message="Reference interval interpretation: N/H/L/NE/IND" +
+        (" source=PIVOT_CONTEXT" if any(ci_get(dataset.column_metadata(c), "PIVOT_CONTEXT", None) is not None for c in results) else ""))
 
 
 @register_plugin("AUTOVERIFICATION", description="Rule-based autoverification review using result parsing, reference limits, critical limits, deltas, and instruments.", roles=(RESULT_ROLE,))
@@ -103,7 +113,7 @@ def autoverification_plugin(dataset: TameDataset, meta: dict, step_name: str, op
     if warnings:
         return _empty_output(step_name, "AUTOVERIFICATION", options, warnings)
 
-    patients = dataset.df[patient_id.name].astype(str) if patient_id is not None else pd.Series("", index=dataset.df.index)
+    patients = dataset.df[patient_id.name].map(lambda v: str(v) if cell_state(v) == STATE_VALUE else "") if patient_id is not None else pd.Series("", index=dataset.df.index)
     times = pd.to_datetime(dataset.df[result_time.name], errors="coerce") if result_time is not None else pd.Series(pd.NaT, index=dataset.df.index)
     instruments = dataset.df[instrument.name].astype(str) if instrument is not None else pd.Series("", index=dataset.df.index)
     hold_instruments = {_normalize_text(value) for value in _option_list(ci_get(options, "HOLD_INSTRUMENTS", []))}
@@ -152,7 +162,11 @@ def _autoverification_rows_for_result(
     output_mode: str,
     include_source: bool,
 ) -> list[dict[str, Any]]:
-    values = numeric_series_for(dataset, result, crr_policy=comparator_policy)
+    from tametools.reference_flags import reference_flags
+    from tametools.analysis import parse_comparator_number
+    values = numeric_series_for(dataset, result, crr_policy="DELETE")
+    flags, reference_reasons, reference_warnings = reference_flags(dataset, result,
+        allow_undeclared_units=ci_get(options, "ALLOW_UNDECLARED_UNITS", False))
     lows = _autoverification_reference_series(dataset, result, ref_low, "REF_LOW", values, comparator_policy)
     highs = _autoverification_reference_series(dataset, result, ref_high, "REF_HIGH", values, comparator_policy)
     tests = dataset.df[item.name].astype(str) if item is not None else pd.Series(result.name, index=values.index)
@@ -165,6 +179,18 @@ def _autoverification_rows_for_result(
         reasons: list[str] = []
         rule_ids: list[str] = []
         hold = False
+        if reference_warnings:
+            reasons.append("UNIT_NOT_VERIFIED")
+            rule_ids.append("UNIT_NOT_VERIFIED")
+
+        raw = dataset.df.loc[index, result.name]
+        parsed = parse_comparator_number(str(raw).strip())
+        if parsed is not None and parsed[0] not in {"", "="}:
+            reasons.append("CENSORED_RESULT")
+            rule_ids.append("CENSORED_RESULT")
+        if flags.loc[index] in {"NE", "IND"}:
+            reasons.append(reference_reasons.loc[index])
+            rule_ids.append("REFERENCE_UNEVALUABLE")
 
         if pd.isna(value):
             reasons.append("RESULT_PARSE")
@@ -181,10 +207,10 @@ def _autoverification_rows_for_result(
             reasons.append("CRITICAL_HIGH")
             rule_ids.append("CRITICAL_HIGH")
 
-        if pd.notna(value) and pd.notna(lows.loc[index]) and value < lows.loc[index]:
+        if flags.loc[index] == "L":
             reasons.append("REF_LOW")
             rule_ids.append("REF_LOW")
-        if pd.notna(value) and pd.notna(highs.loc[index]) and value > highs.loc[index]:
+        if flags.loc[index] == "H":
             reasons.append("REF_HIGH")
             rule_ids.append("REF_HIGH")
 
@@ -492,7 +518,11 @@ def _delta_series(values: pd.Series, tests: pd.Series, patients: pd.Series, time
             "_order": range(len(values)),
         },
         index=values.index,
-    ).sort_values(["_patient", "_test", "_time", "_order"], kind="stable")
+    )
+    work = work.loc[work._patient.ne("") & work._time.notna() & work._test.ne("")]
+    if work.duplicated(["_patient", "_test", "_time"]).any():
+        raise ValueError("Ambiguous delta ordering: duplicate patient/test timestamps")
+    work = work.sort_values(["_patient", "_test", "_time"], kind="stable")
     previous = work.groupby(["_patient", "_test"], dropna=False, observed=False)["_value"].shift(1)
     delta_abs = (work["_value"] - previous).abs()
     delta_percent = delta_abs / previous.abs().replace(0, pd.NA) * 100
@@ -611,11 +641,13 @@ def _header(name: str) -> str:
         "abnormal_n": ("COUNT", "NUM"),
         "high_n": ("COUNT", "NUM"),
         "low_n": ("COUNT", "NUM"),
-        "abnormal_rate": ("PERCENT", "NUM"),
-        "high_rate": ("PERCENT", "NUM"),
-        "low_rate": ("PERCENT", "NUM"),
+        "abnormal_rate": ("PERCENT", "NUM", "NULLABLE"),
+        "high_rate": ("PERCENT", "NUM", "NULLABLE"),
+        "low_rate": ("PERCENT", "NUM", "NULLABLE"),
     }
     column_tags = tags.get(name)
+    if name.endswith("_n") and column_tags is None:
+        column_tags = ("COUNT", "NUM")
     if column_tags:
         return f"[[{'::'.join(column_tags)}]]{name}"
     return f"[[CATEGORY]]{name}"

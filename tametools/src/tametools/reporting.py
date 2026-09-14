@@ -58,6 +58,13 @@ def visualization_meta(charts: Iterable[dict[str, Any]]) -> dict[str, dict[str, 
         table = str(chart.get("TABLE") or chart.get("table") or "").strip()
         if table:
             config["TABLE"] = table
+        for key in ("Y_LOW", "Y_HIGH", "X_LABEL", "Y_LABEL", "LOW_CI_LOW", "LOW_CI_HIGH", "HIGH_CI_LOW", "HIGH_CI_HIGH"):
+            if key in chart:
+                config[key] = str(chart[key])
+        if chart.get("ROWS") and not chart.get("FILTER"):
+            config["ROWS"] = deepcopy(chart["ROWS"])
+        if chart.get("FILTER"):
+            config["FILTER"] = deepcopy(chart["FILTER"])
         meta[name] = config
     return meta
 
@@ -175,6 +182,11 @@ def render_chart_png(chart: dict[str, Any], tables: dict[str, pd.DataFrame], pat
     chart_type = str(chart.get("TYPE") or chart.get("type") or "BAR").lower()
     title = str(chart.get("TITLE") or chart.get("title") or chart.get("name") or "Chart")
     max_points = int(chart.get("MAX_POINTS") or chart.get("max_points") or 80)
+    for column, value in chart.get('FILTER', {}).items():
+        if column not in frame:
+            frame = frame.iloc[:0]; break
+        matches = frame[column].map(lambda v: str(v).strip().lower() in {'true','1'}) if value is True else frame[column].map(lambda v: str(v).strip().lower() in {'false','0'}) if value is False else frame[column].eq(value)
+        frame = frame.loc[matches]
     frame = frame.head(max_points).copy()
 
     fig, ax = plt.subplots(figsize=(8, 4.4))
@@ -182,7 +194,17 @@ def render_chart_png(chart: dict[str, Any], tables: dict[str, pd.DataFrame], pat
         ax.text(0.5, 0.5, "No chart data", ha="center", va="center")
         ax.set_axis_off()
     elif chart_type == "scatter":
-        _plot_by_series(ax, frame, x, y, series, lambda part, label: ax.scatter(part[x].astype(str), pd.to_numeric(part[y], errors="coerce"), label=label))
+        def scatter(part, label):
+            numeric_x = pd.to_numeric(part[x], errors="coerce")
+            axis_x = numeric_x if numeric_x.notna().all() else part[x].astype(str)
+            ax.scatter(axis_x, pd.to_numeric(part[y], errors="coerce"), label=label, s=12, alpha=.45)
+        _plot_by_series(ax, frame, x, y, series, scatter)
+    elif chart_type == "interval":
+        lower, upper = str(chart.get("Y_LOW", "ci95_low")), str(chart.get("Y_HIGH", "ci95_high"))
+        center = pd.to_numeric(frame[y], errors="raise").to_numpy()
+        low = pd.to_numeric(frame[lower], errors="raise").to_numpy()
+        high = pd.to_numeric(frame[upper], errors="raise").to_numpy()
+        ax.errorbar(frame[x].astype(str), center, yerr=[center-low, high-center], fmt="o", capsize=4)
     elif chart_type == "line":
         _plot_by_series(ax, frame, x, y, series, lambda part, label: ax.plot(part[x].astype(str), pd.to_numeric(part[y], errors="coerce"), marker="o", label=label))
     else:
@@ -198,9 +220,10 @@ def render_chart_png(chart: dict[str, Any], tables: dict[str, pd.DataFrame], pat
             values = pd.to_numeric(frame[y], errors="coerce")
             labels = frame[x].astype(str)
             ax.bar(labels, values)
-    ax.set_title(title)
-    ax.set_xlabel(x)
-    ax.set_ylabel(y)
+    from textwrap import fill
+    ax.set_title(fill(title, width=88))
+    ax.set_xlabel(str(chart.get("X_LABEL", x)))
+    ax.set_ylabel(str(chart.get("Y_LABEL", y)))
     ax.tick_params(axis="x", rotation=45)
     if series and series in frame.columns:
         handles, labels = ax.get_legend_handles_labels()

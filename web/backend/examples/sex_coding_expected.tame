@@ -1,0 +1,100 @@
+<META>
+[INFO]
+DESCRIPTION = "Synthetic six-row code-routing fixture only; not clinical reference individuals."
+
+[COLUMN]
+
+[COLUMN.ALT]
+ID = "alt"
+UNIT = "U/L"
+LABEL = "ALT"
+
+[COLUMN.Sex]
+ID = "Sex"
+TAGS = ["STR", "RAW_SEX"]
+
+[COLUMN."시트명"]
+ID = "시트명"
+
+[COLUMN.Sex_standard]
+ID = "Sex_standard"
+LABEL = "표준 성별"
+TAGS = ["SEX", "STR", "NULLABLE"]
+DERIVED_FROM = "Sex"
+NORMALIZATION = "SEX_NORMALIZATION"
+
+[MULTISHEET]
+COLUMN = "시트명"
+SOURCE_COLUMN_NAME = "시트명"
+SHEETS = ["A_0_1", "B_1_2"]
+
+[SEX_NORMALIZATION]
+VERSION = 1
+SEX_ID = "Sex"
+SOURCE_ID = "시트명"
+OUTPUT_ID = "Sex_standard"
+OUTPUT_NAME = "Sex_standard"
+UNMAPPED_POLICY = "ERROR"
+RAW_VALUES_PRESERVED = true
+
+[[SEX_NORMALIZATION.MAPPINGS]]
+SOURCE = "A_0_1"
+
+[SEX_NORMALIZATION.MAPPINGS.VALUES]
+0 = "female"
+1 = "male"
+
+[[SEX_NORMALIZATION.MAPPINGS]]
+SOURCE = "B_1_2"
+
+[SEX_NORMALIZATION.MAPPINGS.VALUES]
+1 = "female"
+2 = "male"
+
+[RI_EP28]
+SEX_ID = "Sex_standard"
+
+[[LOG]]
+TIMESTAMP = "2026-09-12T00:06:54+00:00"
+OPERATION = "NORMALIZE_SEX_BY_SOURCE"
+TOOL = "tametools"
+NOTES = "출처별 코드표로 표준 성별 열을 생성했습니다. 원 코드와 출처는 보존했습니다."
+
+[LOG.PARAMS]
+rows = 6
+mapped_rows = 6
+missing_sex_preserved = 0
+raw_values_preserved = true
+
+[LOG.PARAMS.contract]
+VERSION = 1
+SEX_ID = "Sex"
+SOURCE_ID = "시트명"
+OUTPUT_ID = "Sex_standard"
+OUTPUT_NAME = "Sex_standard"
+UNMAPPED_POLICY = "ERROR"
+RAW_VALUES_PRESERVED = true
+
+[[LOG.PARAMS.contract.MAPPINGS]]
+SOURCE = "A_0_1"
+
+[LOG.PARAMS.contract.MAPPINGS.VALUES]
+0 = "female"
+1 = "male"
+
+[[LOG.PARAMS.contract.MAPPINGS]]
+SOURCE = "B_1_2"
+
+[LOG.PARAMS.contract.MAPPINGS.VALUES]
+1 = "female"
+2 = "male"
+</META>
+<DATA>
+[[ID::STR]]Person	[[STR::RAW_SEX]]Sex	[[RESULT::NUM]]ALT	[[SHEET::STR]]시트명	[[SEX::STR::NULLABLE]]Sex_standard
+A_0_1_1	0	11	A_0_1	female
+A_0_1_2	1	12	A_0_1	male
+A_0_1_3	1	13	A_0_1	male
+B_1_2_1	1	11	B_1_2	female
+B_1_2_2	2	12	B_1_2	male
+B_1_2_3	1	13	B_1_2	female
+</DATA>

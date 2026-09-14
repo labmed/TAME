@@ -75,7 +75,7 @@ class Tutorial17TagSpecExtensionTest(unittest.TestCase):
     def test_runner_captures_outputs_and_self_validates(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             env = os.environ.copy()
-            env["PYTHONPATH"] = f"{ROOT / 'tametools' / 'src'}:{ROOT}"
+            env["PYTHONPATH"] = f"{ROOT / 'tametools' / 'src'}:{ROOT}:" + env.get("PYTHONPATH", "")
             completed = subprocess.run(
                 [sys.executable, str(RUNNER), "--output-dir", tmpdir],
                 cwd=ROOT,

@@ -17,6 +17,8 @@ class TagDefinition:
 
 BUILTIN_TAG_PARENTS: dict[str, tuple[str, ...]] = {
     "CAT": ("CATEGORY",),
+    "NOMINAL": ("CATEGORY",),
+    "ORDINAL": ("CATEGORY",),
     "DOB": ("BIRTHDATE", "DATE"),
     "PATIENT_ID": ("ID(patient)", "ID"),
     "HOSPITAL_ID": ("ID(hospital)", "ID"),
@@ -97,10 +99,10 @@ TAG_CATALOG: tuple[TagDefinition, ...] = (
         "Measurements",
         "Numeric, result, unit, and reference interval fields.",
         (
-            TagDefinition("RESULT", "Result", "Measured or calculated result value."),
+            TagDefinition("RESULT", "Result", "Measured or calculated result; quantitative analysis also requires NUM/<NUM>. NOMINAL/ORDINAL results are categorical."),
             TagDefinition("NUM", "Strict numeric", "Numeric value without inequality/comparator signs."),
             TagDefinition("<NUM>", "Comparator numeric", "Numeric value that may include <, <=, >, >=, or =."),
-            TagDefinition("UNIT", "Unit", "Measurement unit."),
+            TagDefinition("UNIT", "Unit", "Role of a column containing units. A wide result's fixed unit belongs in COLUMN.UNIT, not UNIT(...) tags."),
             TagDefinition("SOURCE_UNIT", "Source unit", "Original measurement unit before conversion."),
             TagDefinition("TARGET_UNIT", "Target unit", "Target measurement unit after conversion."),
             TagDefinition("CONVERSION_FACTOR", "Conversion factor", "Numeric factor used for unit conversion."),
@@ -148,6 +150,8 @@ TAG_CATALOG: tuple[TagDefinition, ...] = (
         "Columns used for category distributions, stratification, and BY-group summaries.",
         (
             TagDefinition("CATEGORY", "Category", "Categorical column; EDA reports counts and percentages per category."),
+            TagDefinition("NOMINAL", "Nominal category", "Unordered categories, including numeric-looking codes; excluded from quantitative summaries."),
+            TagDefinition("ORDINAL", "Ordered category", "Ordered categories with explicit COLUMN.LEVELS; order does not imply equal intervals or concentrations."),
             TagDefinition("CAT", "Category alias", "Short alias that inherits CATEGORY behavior."),
             TagDefinition("STAGE", "Workflow stage", "Workflow or process stage label."),
             TagDefinition("EVENT", "Workflow event", "Workflow event or milestone label."),
@@ -211,6 +215,12 @@ TAG_CATALOG: tuple[TagDefinition, ...] = (
         "Clinical laboratory method, code, interpretation, and quality-control fields.",
         (
             TagDefinition("METHOD", "Method", "Analytical method."),
+            TagDefinition("ANALYTE", "Analyte annotation", "Qualified tag ANALYTE(code) identifies a reviewed measurand; it does not imply RESULT, unit, method equivalence or LOINC."),
+            TagDefinition("ANALYTE(urea)", "Urea", "Urea, not urea nitrogen; no inferred conversion between these components."),
+            TagDefinition("ANALYTE(urea_nitrogen)", "Urea nitrogen", "Nitrogen attributable to urea; distinct from urea even when units match."),
+            TagDefinition("SPECIMEN", "Specimen annotation", "Qualified SPECIMEN(code) declares a fixed specimen context on a result; SAMPLE_TYPE remains the role of a specimen-type column."),
+            TagDefinition("CONDITION", "Measurement condition", "Qualified annotation such as CONDITION(random); never infers unrecorded participant fasting status."),
+            TagDefinition("PANEL", "Analysis panel", "Qualified PANEL(name) selects a reviewed collection of variables; not evidence of an actual ordered laboratory panel."),
             TagDefinition("LOINC", "LOINC", "LOINC code."),
             TagDefinition("LOCAL_CODE", "Local code", "Local laboratory test code."),
             TagDefinition("REAGENT_LOT", "Reagent lot", "Reagent lot number."),

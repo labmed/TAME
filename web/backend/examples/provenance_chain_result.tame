@@ -1,0 +1,864 @@
+<META>
+[COLUMN]
+
+[COLUMN.result_id]
+ID = "result_id"
+
+[COLUMN.test_name]
+ID = "test_name"
+
+[COLUMN.unit]
+ID = "unit"
+
+[COLUMN.group]
+ID = "group"
+
+[COLUMN.partition_definition]
+ID = "partition_definition"
+
+[COLUMN.method]
+ID = "method"
+
+[COLUMN.primary]
+ID = "primary"
+
+[COLUMN.n_before_outliers]
+ID = "n_before_outliers"
+
+[COLUMN.n]
+ID = "n"
+
+[COLUMN.unique_individual_ids_confirmed]
+ID = "unique_individual_ids_confirmed"
+
+[COLUMN.censored_n]
+ID = "censored_n"
+
+[COLUMN.outlier_method]
+ID = "outlier_method"
+
+[COLUMN.outlier_action]
+ID = "outlier_action"
+
+[COLUMN.outliers_flagged]
+ID = "outliers_flagged"
+
+[COLUMN.outliers_removed]
+ID = "outliers_removed"
+
+[COLUMN.coverage]
+ID = "coverage"
+
+[COLUMN.ci_level]
+ID = "ci_level"
+
+[COLUMN.quantile_type]
+ID = "quantile_type"
+
+[COLUMN.ref_low]
+ID = "ref_low"
+
+[COLUMN.ref_high]
+ID = "ref_high"
+
+[COLUMN.low_ci_low]
+ID = "low_ci_low"
+
+[COLUMN.low_ci_high]
+ID = "low_ci_high"
+
+[COLUMN.high_ci_low]
+ID = "high_ci_low"
+
+[COLUMN.high_ci_high]
+ID = "high_ci_high"
+
+[COLUMN.ci_method]
+ID = "ci_method"
+
+[COLUMN.status]
+ID = "status"
+
+[COLUMN.notes]
+ID = "notes"
+
+[COLUMN.details]
+ID = "details"
+
+[COLUMN.bootstrap_valid]
+ID = "bootstrap_valid"
+
+[COLUMN.ci_details]
+ID = "ci_details"
+
+[COLUMN.point_estimate]
+ID = "point_estimate"
+
+[COLUMN.max_ci_width_ratio]
+ID = "max_ci_width_ratio"
+
+[COLUMN.shapiro_p]
+ID = "shapiro_p"
+
+[COLUMN.skewness]
+ID = "skewness"
+
+[COLUMN.normality_status]
+ID = "normality_status"
+
+[COLUMN.n_before_lave]
+ID = "n_before_lave"
+
+[COLUMN.lave_removed]
+ID = "lave_removed"
+
+[COLUMN.n_before_parametric_trim]
+ID = "n_before_parametric_trim"
+
+[COLUMN.parametric_trim_removed]
+ID = "parametric_trim_removed"
+
+[COLUMN.partition_context_missing_n]
+ID = "partition_context_missing_n"
+
+[RI_EP28_RESULT]
+VERSION = 2
+SOURCE_DATA_SHA256 = "5bf5ca659d0dcdaf5203402392e9668cb7b4380f746047c786113cd53b493bb8"
+EFFECTIVE_INPUT_SHA256 = "11436edeef43c71470784ff709999470d70422a14234658eca79d48e99e779ec"
+SETTINGS_JSON = "{\"AGE_CUTS\": [], \"AGE_ID\": \"\", \"BOOTSTRAP_N\": 2000, \"BOOTSTRAP_QUANTILE\": \"TYPE7\", \"BOOTSTRAP_TYPE\": \"PERCENTILE\", \"BOXCOX\": {}, \"CENSOR_POLICY\": \"ERROR\", \"CI_LEVEL\": 0.9, \"CI_METHOD\": \"RANK\", \"CI_WIDTH_WARN_RATIO\": 0.2, \"COVERAGE\": 0.95, \"DIXON_ALPHA\": 0.05, \"FIRST_BATCH_OUTSIDE\": null, \"FIRST_BATCH_SUBJECT_IDS\": [], \"INCLUDE\": [], \"ITEM_ID\": \"\", \"LAVE\": {}, \"MAX_GROUPS\": 100, \"METHOD\": \"NONPARAMETRIC\", \"METHODS\": [\"NONPARAMETRIC\"], \"MIN_CALCULATE_N\": 3, \"MIN_N\": 120, \"NORMALITY_TESTS\": [\"SHAPIRO\"], \"NORMAL_Z\": null, \"OUTLIER_ACTION\": \"FLAG\", \"OUTLIER_METHOD\": \"NONE\", \"OUTLIER_METHODS\": [], \"OUTLIER_WARN_RATE\": 0.02, \"OUTPUT_DIR\": \"\", \"PARAMETRIC_TRIM_Z\": null, \"PARTITION_BY\": [], \"PARTITION_DIAGNOSTICS\": [], \"PARTITION_SCALE\": \"RAW\", \"PLOT_MAX_GROUPS\": 0, \"POINT_ESTIMATE\": \"DIRECT\", \"POPULATION\": {\"REFERENCE_INDIVIDUALS_CONFIRMED\": false}, \"QUANTILE_TYPE\": 6, \"REED_BLOCK_MAX\": 1, \"REED_ITERATIONS\": 10, \"REPORTING_UNITS\": {}, \"REPORT_MAX_ROWS\": 200, \"REPORT_PATH\": \"\", \"RESULT_IDS\": [\"alt\"], \"SEED\": 20260911, \"SEX_ID\": \"\", \"SEX_MAP\": {}, \"SUBJECT_ID\": \"\", \"TUKEY_K\": 1.5, \"VERIFY\": {}, \"VERIFY_BATCH\": 1}"
+WARNINGS = ["Reference intervals describe a defined reference population; they are not diagnostic decision limits.", "Implementation reviewed against supplied EP28-A3c sections 9 and 11 and Appendix B; clinical adoption requires laboratory review.", "Partition tests and normality p-values support review, not automatic clinical decisions."]
+
+[RI_EP28_RESULT.TEST_LABELS]
+ast = "AST"
+alt = "ALT"
+ggt = "GGT"
+alb = "Alb"
+tp = "TP"
+crea = "Cre"
+
+[VISUALIZATIONS]
+
+[VISUALIZATIONS.EP28_LIMITS_1]
+TYPE = "INTERVAL"
+TITLE = "ALT: reference limits (U/L)"
+X = "group"
+Y = "ref_high"
+MAX_POINTS = 1
+Y_LOW = "ref_low"
+Y_HIGH = "ref_high"
+LOW_CI_LOW = "low_ci_low"
+LOW_CI_HIGH = "low_ci_high"
+HIGH_CI_LOW = "high_ci_low"
+HIGH_CI_HIGH = "high_ci_high"
+
+[VISUALIZATIONS.EP28_LIMITS_1.FILTER]
+result_id = "alt"
+test_name = "alt"
+unit = "U/L"
+primary = true
+
+[PROVENANCE]
+VERSION = 2
+
+[PROVENANCE.CONTEXTS]
+
+[PROVENANCE.CONTEXTS.82d36314-a351-4b76-b7df-fd18a314d043]
+TOOL_VERSION = "0.4.0"
+PYTHON = "3.10.2"
+IMPLEMENTATION_SHA256 = "901c6ba7effcdc957e9c11f41589fb33870d15a4231811944e7dfef0a1add758"
+
+[PROVENANCE.CONTEXTS.82d36314-a351-4b76-b7df-fd18a314d043.PACKAGES]
+numpy = "2.2.6"
+pandas = "2.3.3"
+scipy = "1.15.3"
+samplics = "0.4.55"
+statsmodels = "0.15.0"
+pint = "0.24.4"
+matplotlib = "3.10.9"
+
+[PROVENANCE.CONTEXTS.cf9b8da8-ee1d-44ac-af54-498b60c6a29d]
+TOOL_VERSION = "0.4.0"
+PYTHON = "3.10.0"
+IMPLEMENTATION_SHA256 = "d9865f5fbb1465ed0032de8fd84a0e7ec4c3929d1c97192f2073f25aa0939e48"
+
+[PROVENANCE.CONTEXTS.cf9b8da8-ee1d-44ac-af54-498b60c6a29d.PACKAGES]
+numpy = "2.2.6"
+pandas = "2.3.3"
+scipy = "1.15.3"
+samplics = "0.4.55"
+statsmodels = "0.15.0"
+pint = "0.24.4"
+matplotlib = "3.10.9"
+
+[PROVENANCE.CONTROLS]
+
+[PROVENANCE.CONTROLS.def1bc8730621093d613466ca0336b399033cb1ae05f6018d0109b794aaf7335]
+
+[[PROVENANCE.CONTROLS.def1bc8730621093d613466ca0336b399033cb1ae05f6018d0109b794aaf7335.CHUNKS]]
+TEXT = "{\"COLUMNS\":[{\"NAME\":\"SQN\",\"TAGS\":[\"ID\",\"STR\"]},{\"NAME\":\"Sex\",\"TAGS\":[\"CATEGORY\",\"SEX_KENYA\"]},{\"NAME\":\"Age\",\"TAGS\":[\"AGE\",\"NULLABLE\"]},{\"NAME\":\"AST\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"ALT\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"GGT\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"Alb\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"TP\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"Cre\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"Sex_standard\",\"TAGS\":[\"BY\",\"CATEGORY\",\"SEX\"]}],\"JOB\":{},\"META\":{\"ANALYSIS_CONTRACT\":{\"VERSION\":1},\"CATEGORIES\":{\"SEX_KENYA\":{\"MAP\":{\"0\":\"male\",\"1\":\"female\"},\"STRICT\":true,\"VALUES\":[\"male\",\"female\"]}},\"COLUMN\":{\"ALT\":{\"ID\":\"alt\",\"UNIT\":\"U/L\"},\"AST\":{\"ID\":\"ast\",\"UNIT\":\"U/L\"},\"Age\":{\"ID\":\"age\",\"UNIT\":\"a\"},\"Alb\":{\"ID\":\"alb\",\"UNIT\":\"g/L\"},\"Cre\":{\"ID\":\"crea\",\"UNIT\":\"umol/L\"},\"GGT\":{\"ID\":\"ggt\",\"UNIT\":\"U/L\"},\"SQN\":{\"ID\":\"person\"},\"Sex\":{\"ID\":\"sex\"},\"Sex_standard\":{\"DESCRIPTION\":\"Derived from released Sex using the declared mapping: 0=male, 1=female. The released Sex column is unchanged.\",\"ID\":\"sex_std\",\"LABEL\":\"성별 · 표준값\"},\"TP\":{\"ID\":\"tp\",\"UNIT\":\"g/L\"}},\"INFO\":{\"DESCRIPTION\":\"Kenyan public reference-individual data: 533 released rows, six chemistry tests. Software demonstration; individual ages unavailable.\",\"LICENSE\":\"CC0\",\"SOURCE\":\"https://doi.org/10.5061/dryad.nvx0k6dns\",\"SOURCE_SHA256\":\"548f6be78bdf42f646940731c249843fff58ec9b45b03405a9c00bf2eba49054\"},\"OBSERVATION\":{\"KEY_IDS\":[\"person\"],\"REPEAT_POLICY\":\"ERROR\",\"ROW_UNIT\":\"person\",\"SUBJECT_ID\":\"person\",\"VERSION\":1},\"RI_EP28\":{\"METHOD\":\"NONPARAMETRIC\",\"OUTLIER_ACTION\":\"FLAG\",\"OUTLIER_METHOD\":\"TUKEY\",\"PARTITION_BY\":[\"SEX\"],\"POPULATION\":{\"REFERENCE_INDIVIDUALS_CONFIRMED\":false},\"RESULT_IDS\":[\"ast\",\"alt\",\"ggt\",\"alb\",\"tp\",\"crea\"],\"SEX_ID\":\"sex_std\",\"SUBJECT_ID\":\"person\"}},\"SCHEMA\":{},\"VERSION\":2}"
+
+[PROVENANCE.CONTROLS.22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0]
+
+[[PROVENANCE.CONTROLS.22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0.CHUNKS]]
+TEXT = "{\"COLUMNS\":[{\"NAME\":\"SQN\",\"TAGS\":[\"ID\",\"STR\"]},{\"NAME\":\"Sex\",\"TAGS\":[\"CATEGORY\",\"SEX_KENYA\"]},{\"NAME\":\"Age\",\"TAGS\":[\"AGE\",\"NULLABLE\"]},{\"NAME\":\"AST\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"ALT\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"GGT\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"Alb\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"TP\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"Cre\",\"TAGS\":[\"NULLABLE\",\"NUM\",\"RESULT\"]},{\"NAME\":\"Sex_standard\",\"TAGS\":[\"BY\",\"CATEGORY\",\"SEX\"]}],\"JOB\":{},\"META\":{\"ANALYSIS_CONTRACT\":{\"VERSION\":1},\"CATEGORIES\":{\"SEX_KENYA\":{\"MAP\":{\"0\":\"male\",\"1\":\"female\"},\"STRICT\":true,\"VALUES\":[\"male\",\"female\"]}},\"COLUMN\":{\"ALT\":{\"ID\":\"alt\",\"UNIT\":\"U/L\"},\"AST\":{\"ID\":\"ast\",\"UNIT\":\"U/L\"},\"Age\":{\"ID\":\"age\",\"UNIT\":\"a\"},\"Alb\":{\"ID\":\"alb\",\"UNIT\":\"g/L\"},\"Cre\":{\"ID\":\"crea\",\"UNIT\":\"umol/L\"},\"GGT\":{\"ID\":\"ggt\",\"UNIT\":\"U/L\"},\"SQN\":{\"ID\":\"person\"},\"Sex\":{\"ID\":\"sex\"},\"Sex_standard\":{\"DESCRIPTION\":\"Derived from released Sex using the declared mapping: 0=male, 1=female. The released Sex column is unchanged.\",\"ID\":\"sex_std\",\"LABEL\":\"성별 · 표준값\"},\"TP\":{\"ID\":\"tp\",\"UNIT\":\"g/L\"}},\"INFO\":{\"DESCRIPTION\":\"Kenyan public reference-individual data: 533 released rows, six chemistry tests. Software demonstration; individual ages unavailable.\",\"LICENSE\":\"CC0\",\"SOURCE\":\"https://doi.org/10.5061/dryad.nvx0k6dns\",\"SOURCE_SHA256\":\"548f6be78bdf42f646940731c249843fff58ec9b45b03405a9c00bf2eba49054\"},\"OBSERVATION\":{\"KEY_IDS\":[\"person\"],\"REPEAT_POLICY\":\"ERROR\",\"ROW_UNIT\":\"person\",\"SUBJECT_ID\":\"person\",\"VERSION\":1},\"RI_EP28\":{\"CI_METHOD\":\"RANK\",\"METHOD\":\"NONPARAMETRIC\",\"OUTLIER_METHOD\":\"NONE\",\"PARTITION_BY\":[],\"PLOT_MAX_GROUPS\":0,\"POPULATION\":{\"REFERENCE_INDIVIDUALS_CONFIRMED\":false},\"RESULT_IDS\":[\"alt\"]},\"SAMPLE\":{\"ROWS\":240,\"SEED\":42},\"WORKS\":{\"DEFAULT\":[\"SAMPLE\",\"RI_EP28\"]}},\"SCHEMA\":{},\"VERSION\":2}"
+
+[PROVENANCE.CONTROLS.a220a0d4444001eed5e576a4049e5702613b790b6232311455095a3ffb83a9b0]
+
+[[PROVENANCE.CONTROLS.a220a0d4444001eed5e576a4049e5702613b790b6232311455095a3ffb83a9b0.CHUNKS]]
+TEXT = "{\"COLUMNS\":[{\"NAME\":\"result_id\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"test_name\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"unit\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"group\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"partition_definition\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"method\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"primary\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"n_before_outliers\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"n\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"unique_individual_ids_confirmed\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"censored_n\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"outlier_method\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"outlier_action\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"outliers_flagged\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"outliers_removed\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"coverage\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"ci_level\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"quantile_type\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"ref_low\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"ref_high\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"low_ci_low\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"low_ci_high\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"high_ci_low\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"high_ci_high\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"ci_method\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"status\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"notes\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"details\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"bootstrap_valid\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"ci_details\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"point_estimate\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"max_ci_width_ratio\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"shapiro_p\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"skewness\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"normality_status\",\"TAGS\":[\"NULLABLE\",\"STR\"]},{\"NAME\":\"n_before_lave\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"lave_removed\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"n_before_parametric_trim\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"parametric_trim_removed\",\"TAGS\":[\"NULLABLE\",\"NUM\"]},{\"NAME\":\"partition_context_missing_n\",\"TAGS\":[\"NULLABLE\",\"NUM\"]}],\"JOB\":{},\"META\":{\"COLUMN\":{\"bootstrap_valid\":{\"ID\":\"bootstrap_valid\"},\"censored_n\":{\"ID\":\"censored_n\"},\"ci_details\":{\"ID\":\"ci_details\"},\"ci_level\":{\"ID\":\"ci_level\"},\"ci_method\":{\"ID\":\"ci_method\"},\"coverage\":{\"ID\":\"coverage\"},\"details\":{\"ID\":\"details\"},\"group\":{\"ID\":\"group\"},\"high_ci_high\":{\"ID\":\"high_ci_high\"},\"high_ci_low\":{\"ID\":\"high_ci_low\"},\"lave_removed\":{\"ID\":\"lave_removed\"},\"low_ci_high\":{\"ID\":\"low_ci_high\"},\"low_ci_low\":{\"ID\":\"low_ci_low\"},\"max_ci_width_ratio\":{\"ID\":\"max_ci_width_ratio\"},\"method\":{\"ID\":\"method\"},\"n\":{\"ID\":\"n\"},\"n_before_lave\":{\"ID\":\"n_before_lave\"},\"n_before_outliers\":{\"ID\":\"n_before_outliers\"},\"n_before_parametric_trim\":{\"ID\":\"n_before_parametric_trim\"},\"normality_status\":{\"ID\":\"normality_status\"},\"notes\":{\"ID\":\"notes\"},\"outlier_action\":{\"ID\":\"outlier_action\"},\"outlier_method\":{\"ID\":\"outlier_method\"},\"outliers_flagged\":{\"ID\":\"outliers_flagged\"},\"outliers_removed\":{\"ID\":\"outliers_removed\"},\"parametric_trim_removed\":{\"ID\":\"parametric_trim_removed\"},\"partition_context_missing_n\":{\"ID\":\"partition_context_missing_n\"},\"partition_definition\":{\"ID\":\"partition_definition\"},\"point_estimate\":{\"ID\":\"point_estimate\"},\"primary\":{\"ID\":\"primary\"},\"quantile_type\":{\"ID\":\"quantile_type\"},\"ref_high\":{\"ID\":\"ref_high\"},\"ref_low\":{\"ID\":\"ref_low\"},\"result_id\":{\"ID\":\"result_id\"},\"shapiro_p\":{\"ID\":\"shapiro_p\"},\"skewness\":{\"ID\":\"skewness\"},\"status\":{\"ID\":\"status\"},\"test_name\":{\"ID\":\"test_name\"},\"unique_individual_ids_confirmed\":{\"ID\":\"unique_individual_ids_confirmed\"},\"unit\":{\"ID\":\"unit\"}},\"RI_EP28_RESULT\":{\"EFFECTIVE_INPUT_SHA256\":\"11436edeef43c71470784ff709999470d70422a14234658eca79d48e99e779ec\",\"SETTINGS_JSON\":\"{\\\"AGE_CUTS\\\": [], \\\"AGE_ID\\\": \\\"\\\", \\\"BOOTSTRAP_N\\\": 2000, \\\"BOOTSTRAP_QUANTILE\\\": \\\"TYPE7\\\", \\\"BOOTSTRAP_TYPE\\\": \\\"PERCENTILE\\\", \\\"BOXCOX\\\": {}, \\\"CENSOR_POLICY\\\": \\\"ERROR\\\", \\\"CI_LEVEL\\\": 0.9, \\\"CI_METHOD\\\": \\\"RANK\\\", \\\"CI_WIDTH_WARN_RATIO\\\": 0.2, \\\"COVERAGE\\\": 0.95, \\\"DIXON_ALPHA\\\": 0.05, \\\"FIRST_BATCH_OUTSIDE\\\": null, \\\"FIRST_BATCH_SUBJ"
+
+[[PROVENANCE.CONTROLS.a220a0d4444001eed5e576a4049e5702613b790b6232311455095a3ffb83a9b0.CHUNKS]]
+TEXT = "ECT_IDS\\\": [], \\\"INCLUDE\\\": [], \\\"ITEM_ID\\\": \\\"\\\", \\\"LAVE\\\": {}, \\\"MAX_GROUPS\\\": 100, \\\"METHOD\\\": \\\"NONPARAMETRIC\\\", \\\"METHODS\\\": [\\\"NONPARAMETRIC\\\"], \\\"MIN_CALCULATE_N\\\": 3, \\\"MIN_N\\\": 120, \\\"NORMALITY_TESTS\\\": [\\\"SHAPIRO\\\"], \\\"NORMAL_Z\\\": null, \\\"OUTLIER_ACTION\\\": \\\"FLAG\\\", \\\"OUTLIER_METHOD\\\": \\\"NONE\\\", \\\"OUTLIER_METHODS\\\": [], \\\"OUTLIER_WARN_RATE\\\": 0.02, \\\"OUTPUT_DIR\\\": \\\"\\\", \\\"PARAMETRIC_TRIM_Z\\\": null, \\\"PARTITION_BY\\\": [], \\\"PARTITION_DIAGNOSTICS\\\": [], \\\"PARTITION_SCALE\\\": \\\"RAW\\\", \\\"PLOT_MAX_GROUPS\\\": 0, \\\"POINT_ESTIMATE\\\": \\\"DIRECT\\\", \\\"POPULATION\\\": {\\\"REFERENCE_INDIVIDUALS_CONFIRMED\\\": false}, \\\"QUANTILE_TYPE\\\": 6, \\\"REED_BLOCK_MAX\\\": 1, \\\"REED_ITERATIONS\\\": 10, \\\"REPORTING_UNITS\\\": {}, \\\"REPORT_MAX_ROWS\\\": 200, \\\"REPORT_PATH\\\": \\\"\\\", \\\"RESULT_IDS\\\": [\\\"alt\\\"], \\\"SEED\\\": 20260911, \\\"SEX_ID\\\": \\\"\\\", \\\"SEX_MAP\\\": {}, \\\"SUBJECT_ID\\\": \\\"\\\", \\\"TUKEY_K\\\": 1.5, \\\"VERIFY\\\": {}, \\\"VERIFY_BATCH\\\": 1}\",\"SOURCE_DATA_SHA256\":\"5bf5ca659d0dcdaf5203402392e9668cb7b4380f746047c786113cd53b493bb8\",\"TEST_LABELS\":{\"alb\":\"Alb\",\"alt\":\"ALT\",\"ast\":\"AST\",\"crea\":\"Cre\",\"ggt\":\"GGT\",\"tp\":\"TP\"},\"VERSION\":2,\"WARNINGS\":[\"Reference intervals describe a defined reference population; they are not diagnostic decision limits.\",\"Implementation reviewed against supplied EP28-A3c sections 9 and 11 and Appendix B; clinical adoption requires laboratory review.\",\"Partition tests and normality p-values support review, not automatic clinical decisions.\"]},\"VISUALIZATIONS\":{\"EP28_LIMITS_1\":{\"FILTER\":{\"primary\":true,\"result_id\":\"alt\",\"test_name\":\"alt\",\"unit\":\"U/L\"},\"HIGH_CI_HIGH\":\"high_ci_high\",\"HIGH_CI_LOW\":\"high_ci_low\",\"LOW_CI_HIGH\":\"low_ci_high\",\"LOW_CI_LOW\":\"low_ci_low\",\"MAX_POINTS\":1,\"TITLE\":\"ALT: reference limits (U/L)\",\"TYPE\":\"INTERVAL\",\"X\":\"group\",\"Y\":\"ref_high\",\"Y_HIGH\":\"ref_high\",\"Y_LOW\":\"ref_low\"}}},\"SCHEMA\":{},\"VERSION\":2}"
+
+[[LOG]]
+TIMESTAMP = "2026-09-11T21:55:12+00:00"
+OPERATION = "PUBLIC-EXAMPLE"
+TOOL = "tametools"
+NOTES = "Selected six released chemistry columns. All 533 participants and observed values retained; age absence and sex vocabulary declared."
+EVENT_ID = "legacy-887d3eed1f20365ead43db703a022a6a64a3090b3556d702d85e77eb77010615"
+LEGACY_IMPORTED = true
+
+[LOG.PARAMS]
+source = "https://doi.org/10.5061/dryad.nvx0k6dns"
+source_sha256 = "548f6be78bdf42f646940731c249843fff58ec9b45b03405a9c00bf2eba49054"
+
+[[LOG]]
+TIMESTAMP = "2026-09-11T22:31:17+00:00"
+OPERATION = "DERIVE-STANDARD-SEX"
+TOOL = "tametools"
+NOTES = "공개 원자료 Sex 코드를 보존하고 선언된 매핑으로 분석용 성별 열을 추가했습니다."
+EVENT_ID = "legacy-85c04f68fecd580a31b16804e5ba95ae42dbd3f9be2368f6a922101045c930f1"
+LEGACY_IMPORTED = true
+
+[LOG.PARAMS]
+SOURCE_COLUMN = "Sex"
+OUTPUT_COLUMN = "Sex_standard"
+SOURCE_VALUES_PRESERVED = true
+
+[LOG.PARAMS.MAP]
+0 = "male"
+1 = "female"
+
+[[LOG]]
+SCHEMA_VERSION = 2
+EVENT_ID = "5a574e57-1aa5-4f1e-816d-433210b5b7a3"
+RUN_ID = "82d36314-a351-4b76-b7df-fd18a314d043"
+SEQUENCE = 1
+OPERATION_ID = "b8710a77-982e-42a8-8c66-c3dc6e762c2a"
+TIMESTAMP = "2026-09-12T01:50:30.174+00:00"
+FINISHED_AT = "2026-09-12T01:50:30.174+00:00"
+OPERATION = "DECLARE_WORK"
+STATUS = "SUCCEEDED"
+TOOL = "tametools"
+TOOL_VERSION = "0.4.0"
+CONTEXT_SHA256 = "1f72e52a686210da0302bb4e0a529359d6724b48b58f437bfa9f9eedad340ed5"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+PARENT_EVENT_IDS = ["legacy-887d3eed1f20365ead43db703a022a6a64a3090b3556d702d85e77eb77010615", "legacy-85c04f68fecd580a31b16804e5ba95ae42dbd3f9be2368f6a922101045c930f1"]
+NOTES = "공개 Kenya 자료에 로그 검증용 분석 단계를 선언했습니다. 표본 추출 seed=42."
+SUMMARY = "공개 Kenya 자료에 로그 검증용 분석 단계를 선언했습니다. 표본 추출 seed=42."
+EVENT_SHA256 = "e5ebaa81c6b3d1d66d6ac0a7266524784202f4a93da6987b96994b7b36cf5e9c"
+
+[LOG.PARENT_HASHES]
+legacy-887d3eed1f20365ead43db703a022a6a64a3090b3556d702d85e77eb77010615 = "42e05a1e0522d474ba319b3b996ba9cc1adb4b38f68f26f839f363a490d6c1fe"
+legacy-85c04f68fecd580a31b16804e5ba95ae42dbd3f9be2368f6a922101045c930f1 = "176d9af55d419b00fb60df5769401660eb3edfa0ee1e36b0de082743dcf10080"
+
+[LOG.PARAMS]
+
+[LOG.PARAMS.WORKS]
+DEFAULT = ["SAMPLE", "RI_EP28"]
+
+[LOG.PARAMS.SAMPLE]
+ROWS = 240
+SEED = 42
+
+[LOG.PARAMS.RI_EP28]
+RESULT_IDS = ["alt"]
+METHOD = "NONPARAMETRIC"
+CI_METHOD = "RANK"
+OUTLIER_METHOD = "NONE"
+PARTITION_BY = []
+PLOT_MAX_GROUPS = 0
+
+[LOG.PARAMS.RI_EP28.POPULATION]
+REFERENCE_INDIVIDUALS_CONFIRMED = false
+
+[LOG.EFFECTIVE_PARAMS]
+
+[LOG.EFFECTIVE_PARAMS.WORKS]
+DEFAULT = ["SAMPLE", "RI_EP28"]
+
+[LOG.EFFECTIVE_PARAMS.SAMPLE]
+ROWS = 240
+SEED = 42
+
+[LOG.EFFECTIVE_PARAMS.RI_EP28]
+RESULT_IDS = ["alt"]
+METHOD = "NONPARAMETRIC"
+CI_METHOD = "RANK"
+OUTLIER_METHOD = "NONE"
+PARTITION_BY = []
+PLOT_MAX_GROUPS = 0
+
+[LOG.EFFECTIVE_PARAMS.RI_EP28.POPULATION]
+REFERENCE_INDIVIDUALS_CONFIRMED = false
+
+[LOG.COUNTS]
+INPUT_ROWS = 533
+INPUT_FILES = 1
+OUTPUT_ROWS = 533
+OUTPUT_COLUMNS = 10
+
+[[LOG.INPUTS]]
+ARTIFACT_ID = "1b9055b70e9cbbcde280004751c4cd08c8c8bd6ae3c89ccfe2b7722f64466908"
+KIND = "dataset"
+NAME = "kenya_reference.tame"
+ROWS = 533
+COLUMNS = 10
+DATA_SHA256 = "108efdd43dcc0f791e617badca49e8d86d48bc8e02188c4351a3db5640d05357"
+CONTROL_SHA256 = "def1bc8730621093d613466ca0336b399033cb1ae05f6018d0109b794aaf7335"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+ARTIFACT_ID = "db72c965b36d98173cae21b371d60675b9c13555c46d8a66d368052792bd65c8"
+KIND = "dataset"
+NAME = "kenya_reference.tame"
+ROWS = 533
+COLUMNS = 10
+DATA_SHA256 = "108efdd43dcc0f791e617badca49e8d86d48bc8e02188c4351a3db5640d05357"
+CONTROL_SHA256 = "22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG]]
+SCHEMA_VERSION = 2
+EVENT_ID = "b0aa800d-0a06-4bd8-b349-948fe8895ea2"
+RUN_ID = "cf9b8da8-ee1d-44ac-af54-498b60c6a29d"
+SEQUENCE = 1
+OPERATION_ID = "61587f6b-b1b5-4762-9caf-7a8bf6c8d8af"
+TIMESTAMP = "2026-09-13T23:45:13.159+00:00"
+FINISHED_AT = "2026-09-13T23:45:13.620+00:00"
+OPERATION = "WORK:SAMPLE"
+STATUS = "SUCCEEDED"
+TOOL = "tametools"
+TOOL_VERSION = "0.4.0"
+CONTEXT_SHA256 = "79c39b944be9da3becaaa9c8af03936b02326455086f0ceec763599b40cb19ab"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+PARENT_EVENT_IDS = ["5a574e57-1aa5-4f1e-816d-433210b5b7a3"]
+DURATION_MS = 506.905
+NOTES = "rows=240 grouped_by=[] sampled_rows=240"
+SUMMARY = "rows=240 grouped_by=[] sampled_rows=240"
+EVENT_SHA256 = "9d87bac22148ff1a16899413728cf10ff8598ecdf4c683f844dfd8077d31ee22"
+
+[LOG.PARENT_HASHES]
+5a574e57-1aa5-4f1e-816d-433210b5b7a3 = "e5ebaa81c6b3d1d66d6ac0a7266524784202f4a93da6987b96994b7b36cf5e9c"
+
+[LOG.PARAMS]
+step = "SAMPLE"
+input_hash = "2595ef6a7cb193cf"
+output_hash = "2491c7a9ff25b45e"
+issues = 0
+warnings = 0
+tables = []
+files = []
+
+[LOG.PARAMS.options]
+ROWS = 240
+SEED = 42
+
+[LOG.EFFECTIVE_PARAMS]
+ROWS = 240
+SEED = 42
+SEED_GENERATED = false
+BY_COLUMNS = []
+BY_TAGS = []
+REPLACE = false
+RNG = "pandas.DataFrame.sample / numpy RandomState; group offset added to seed"
+
+[LOG.EFFECTIVE_PARAMS.FRAC]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.COUNTS]
+INPUT_ROWS = 533
+INPUT_FILES = 1
+OUTPUT_ROWS = 240
+OUTPUT_COLUMNS = 10
+ISSUES = 0
+WARNINGS = 0
+
+[[LOG.INPUTS]]
+ARTIFACT_ID = "db72c965b36d98173cae21b371d60675b9c13555c46d8a66d368052792bd65c8"
+KIND = "dataset"
+NAME = "provenance_chain_input.tame"
+ROWS = 533
+COLUMNS = 10
+DATA_SHA256 = "108efdd43dcc0f791e617badca49e8d86d48bc8e02188c4351a3db5640d05357"
+CONTROL_SHA256 = "22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+ARTIFACT_ID = "401bf0d650517dc05c6f52552408deed7e557b6428226c7ba826e9bd5a3f9573"
+KIND = "dataset"
+NAME = "provenance_chain_input.tame"
+ROWS = 240
+COLUMNS = 10
+DATA_SHA256 = "9ba3b003ba9d85e2cdb0b09819ba2509bf5501b8b43c9aea6625d2130196f6ff"
+CONTROL_SHA256 = "22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG]]
+SCHEMA_VERSION = 2
+EVENT_ID = "750e43bf-2a34-49f8-a3f9-f4038d6024f4"
+RUN_ID = "cf9b8da8-ee1d-44ac-af54-498b60c6a29d"
+SEQUENCE = 2
+OPERATION_ID = "5bee60ee-e5ed-49da-9f5c-a5b649d5b555"
+TIMESTAMP = "2026-09-13T23:45:13.668+00:00"
+FINISHED_AT = "2026-09-13T23:45:17.391+00:00"
+OPERATION = "REFERENCE_INTERVAL_EP28"
+STATUS = "SUCCEEDED"
+TOOL = "tametools"
+TOOL_VERSION = "0.4.0"
+CONTEXT_SHA256 = "79c39b944be9da3becaaa9c8af03936b02326455086f0ceec763599b40cb19ab"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+PARENT_EVENT_IDS = ["b0aa800d-0a06-4bd8-b349-948fe8895ea2"]
+DURATION_MS = 3741.452
+NOTES = "EP28 참고구간 계산: 입력 240행, 결과 1행"
+SUMMARY = "EP28 참고구간 계산: 입력 240행, 결과 1행"
+PARENT = "web/backend/examples/provenance_chain_input.tame"
+WARNINGS = ["Reference intervals describe a defined reference population; they are not diagnostic decision limits.", "Implementation reviewed against supplied EP28-A3c sections 9 and 11 and Appendix B; clinical adoption requires laboratory review.", "Partition tests and normality p-values support review, not automatic clinical decisions."]
+EVENT_SHA256 = "e1ecddf355e6a6043beeec5c753cc422122ce14b37c9e328ef9ef39d55920741"
+
+[LOG.PARENT_HASHES]
+b0aa800d-0a06-4bd8-b349-948fe8895ea2 = "9d87bac22148ff1a16899413728cf10ff8598ecdf4c683f844dfd8077d31ee22"
+
+[LOG.PARAMS]
+EFFECTIVE_INPUT_SHA256 = "11436edeef43c71470784ff709999470d70422a14234658eca79d48e99e779ec"
+SOURCE_DATA_SHA256 = "5bf5ca659d0dcdaf5203402392e9668cb7b4380f746047c786113cd53b493bb8"
+
+[LOG.EFFECTIVE_PARAMS]
+METHOD = "NONPARAMETRIC"
+METHODS = ["NONPARAMETRIC"]
+COVERAGE = 0.95
+CI_LEVEL = 0.9
+CI_METHOD = "RANK"
+QUANTILE_TYPE = 6
+BOOTSTRAP_N = 2000
+BOOTSTRAP_TYPE = "PERCENTILE"
+SEED = 20260911
+OUTLIER_METHOD = "NONE"
+OUTLIER_ACTION = "FLAG"
+OUTLIER_METHODS = []
+TUKEY_K = 1.5
+DIXON_ALPHA = 0.05
+REED_ITERATIONS = 10
+REED_BLOCK_MAX = 1
+OUTLIER_WARN_RATE = 0.02
+MIN_N = 120
+MIN_CALCULATE_N = 3
+CENSOR_POLICY = "ERROR"
+RESULT_IDS = ["alt"]
+ITEM_ID = ""
+SUBJECT_ID = ""
+INCLUDE = []
+PARTITION_BY = []
+AGE_ID = ""
+SEX_ID = ""
+AGE_CUTS = []
+PARTITION_SCALE = "RAW"
+MAX_GROUPS = 100
+CI_WIDTH_WARN_RATIO = 0.2
+VERIFY_BATCH = 1
+FIRST_BATCH_SUBJECT_IDS = []
+OUTPUT_DIR = ""
+REPORT_PATH = ""
+REPORT_MAX_ROWS = 200
+PLOT_MAX_GROUPS = 0
+POINT_ESTIMATE = "DIRECT"
+BOOTSTRAP_QUANTILE = "TYPE7"
+PARTITION_DIAGNOSTICS = []
+NORMALITY_TESTS = ["SHAPIRO"]
+
+[LOG.EFFECTIVE_PARAMS.SEX_MAP]
+
+[LOG.EFFECTIVE_PARAMS.POPULATION]
+REFERENCE_INDIVIDUALS_CONFIRMED = false
+
+[LOG.EFFECTIVE_PARAMS.VERIFY]
+
+[LOG.EFFECTIVE_PARAMS.FIRST_BATCH_OUTSIDE]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.EFFECTIVE_PARAMS.BOXCOX]
+
+[LOG.EFFECTIVE_PARAMS.NORMAL_Z]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.EFFECTIVE_PARAMS.PARAMETRIC_TRIM_Z]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.EFFECTIVE_PARAMS.LAVE]
+
+[LOG.EFFECTIVE_PARAMS.REPORTING_UNITS]
+
+[LOG.COUNTS]
+INPUT_ROWS = 240
+INPUT_FILES = 1
+OUTPUT_ROWS = 1
+OUTPUT_COLUMNS = 40
+RESULT_ROWS = 1
+OUTLIERS_FLAGGED = 0
+LAVE_EXCLUSION_RECORDS = 0
+PARAMETRIC_TRIM_EXCLUSION_RECORDS = 0
+
+[[LOG.INPUTS]]
+ARTIFACT_ID = "401bf0d650517dc05c6f52552408deed7e557b6428226c7ba826e9bd5a3f9573"
+KIND = "dataset"
+NAME = "web/backend/examples/provenance_chain_input.tame"
+ROWS = 240
+COLUMNS = 10
+DATA_SHA256 = "9ba3b003ba9d85e2cdb0b09819ba2509bf5501b8b43c9aea6625d2130196f6ff"
+CONTROL_SHA256 = "22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+ARTIFACT_ID = "3eea7fd4ced520a88db04773d56f433e852e4080c0819337a99f907f95bed8e7"
+KIND = "dataset"
+NAME = ""
+ROWS = 1
+COLUMNS = 40
+DATA_SHA256 = "12f82ba2f0ca82fa3d8e846195a18b3bbaafec9135e9b31465b2f1a7130ac607"
+CONTROL_SHA256 = "a220a0d4444001eed5e576a4049e5702613b790b6232311455095a3ffb83a9b0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG]]
+SCHEMA_VERSION = 2
+EVENT_ID = "757a9a8c-3e21-4a91-9f1e-4687fc9369a6"
+RUN_ID = "cf9b8da8-ee1d-44ac-af54-498b60c6a29d"
+SEQUENCE = 3
+OPERATION_ID = "5bee60ee-e5ed-49da-9f5c-a5b649d5b555"
+TIMESTAMP = "2026-09-13T23:45:13.668+00:00"
+FINISHED_AT = "2026-09-13T23:45:17.420+00:00"
+OPERATION = "WORK:RI_EP28"
+STATUS = "SUCCEEDED"
+TOOL = "tametools"
+TOOL_VERSION = "0.4.0"
+CONTEXT_SHA256 = "79c39b944be9da3becaaa9c8af03936b02326455086f0ceec763599b40cb19ab"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+PARENT_EVENT_IDS = ["750e43bf-2a34-49f8-a3f9-f4038d6024f4"]
+DURATION_MS = 3799.827
+NOTES = "EP28 candidate intervals: 1 rows; clinical adoption requires review"
+SUMMARY = "EP28 candidate intervals: 1 rows; clinical adoption requires review"
+WARNINGS = ["Reference intervals describe a defined reference population; they are not diagnostic decision limits.", "Implementation reviewed against supplied EP28-A3c sections 9 and 11 and Appendix B; clinical adoption requires laboratory review.", "Partition tests and normality p-values support review, not automatic clinical decisions."]
+EVENT_SHA256 = "c59366b1b9e5cc26e1d05734b1e99a47a01b76a54be4da77bd9f015e65ec63f6"
+
+[LOG.PARENT_HASHES]
+750e43bf-2a34-49f8-a3f9-f4038d6024f4 = "e1ecddf355e6a6043beeec5c753cc422122ce14b37c9e328ef9ef39d55920741"
+
+[LOG.PARAMS]
+step = "RI_EP28"
+input_hash = "2491c7a9ff25b45e"
+output_hash = "4fcdd0588d319025"
+issues = 0
+warnings = 3
+tables = ["group_membership", "input_audit", "input_summary", "lave_iterations", "lave_membership", "nested_sdr", "outlier_sensitivity", "outliers", "parametric_trim", "partition_tails", "partition_tests", "reference_intervals", "verification"]
+files = []
+
+[LOG.PARAMS.options]
+RESULT_IDS = ["alt"]
+METHOD = "NONPARAMETRIC"
+CI_METHOD = "RANK"
+OUTLIER_METHOD = "NONE"
+PARTITION_BY = []
+PLOT_MAX_GROUPS = 0
+
+[LOG.PARAMS.options.POPULATION]
+REFERENCE_INDIVIDUALS_CONFIRMED = false
+
+[LOG.EFFECTIVE_PARAMS]
+RESULT_IDS = ["alt"]
+METHOD = "NONPARAMETRIC"
+CI_METHOD = "RANK"
+OUTLIER_METHOD = "NONE"
+PARTITION_BY = []
+PLOT_MAX_GROUPS = 0
+METHODS = ["NONPARAMETRIC"]
+COVERAGE = 0.95
+CI_LEVEL = 0.9
+QUANTILE_TYPE = 6
+BOOTSTRAP_N = 2000
+BOOTSTRAP_TYPE = "PERCENTILE"
+SEED = 20260911
+OUTLIER_ACTION = "FLAG"
+OUTLIER_METHODS = []
+TUKEY_K = 1.5
+DIXON_ALPHA = 0.05
+REED_ITERATIONS = 10
+REED_BLOCK_MAX = 1
+OUTLIER_WARN_RATE = 0.02
+MIN_N = 120
+MIN_CALCULATE_N = 3
+CENSOR_POLICY = "ERROR"
+ITEM_ID = ""
+SUBJECT_ID = ""
+INCLUDE = []
+AGE_ID = ""
+SEX_ID = ""
+AGE_CUTS = []
+PARTITION_SCALE = "RAW"
+MAX_GROUPS = 100
+CI_WIDTH_WARN_RATIO = 0.2
+VERIFY_BATCH = 1
+FIRST_BATCH_SUBJECT_IDS = []
+OUTPUT_DIR = ""
+REPORT_PATH = ""
+REPORT_MAX_ROWS = 200
+POINT_ESTIMATE = "DIRECT"
+BOOTSTRAP_QUANTILE = "TYPE7"
+PARTITION_DIAGNOSTICS = []
+NORMALITY_TESTS = ["SHAPIRO"]
+
+[LOG.EFFECTIVE_PARAMS.POPULATION]
+REFERENCE_INDIVIDUALS_CONFIRMED = false
+
+[LOG.EFFECTIVE_PARAMS.PLUGIN_IMPLEMENTATION]
+NAME = "RI_EP28"
+MODULE = "tametools_dropin_reference_interval_ep28"
+SOURCE_SHA256 = "452f13f6385b763931cd2109838ec84f2e32d40d8dfc46eb1af06c2a5a0a5432"
+
+[LOG.EFFECTIVE_PARAMS.PLUGIN_REQUESTED_OPTIONS]
+RESULT_IDS = ["alt"]
+METHOD = "NONPARAMETRIC"
+CI_METHOD = "RANK"
+OUTLIER_METHOD = "NONE"
+PARTITION_BY = []
+PLOT_MAX_GROUPS = 0
+
+[LOG.EFFECTIVE_PARAMS.PLUGIN_REQUESTED_OPTIONS.POPULATION]
+REFERENCE_INDIVIDUALS_CONFIRMED = false
+
+[LOG.EFFECTIVE_PARAMS.SEX_MAP]
+
+[LOG.EFFECTIVE_PARAMS.VERIFY]
+
+[LOG.EFFECTIVE_PARAMS.FIRST_BATCH_OUTSIDE]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.EFFECTIVE_PARAMS.BOXCOX]
+
+[LOG.EFFECTIVE_PARAMS.NORMAL_Z]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.EFFECTIVE_PARAMS.PARAMETRIC_TRIM_Z]
+__TAME_LOG_TYPE__ = "null"
+
+[LOG.EFFECTIVE_PARAMS.LAVE]
+
+[LOG.EFFECTIVE_PARAMS.REPORTING_UNITS]
+
+[LOG.COUNTS]
+INPUT_ROWS = 240
+INPUT_FILES = 1
+OUTPUT_ROWS = 1
+OUTPUT_COLUMNS = 40
+ISSUES = 0
+WARNINGS = 3
+
+[[LOG.INPUTS]]
+ARTIFACT_ID = "401bf0d650517dc05c6f52552408deed7e557b6428226c7ba826e9bd5a3f9573"
+KIND = "dataset"
+NAME = "provenance_chain_input.tame"
+ROWS = 240
+COLUMNS = 10
+DATA_SHA256 = "9ba3b003ba9d85e2cdb0b09819ba2509bf5501b8b43c9aea6625d2130196f6ff"
+CONTROL_SHA256 = "22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+ARTIFACT_ID = "3eea7fd4ced520a88db04773d56f433e852e4080c0819337a99f907f95bed8e7"
+KIND = "dataset"
+NAME = ""
+ROWS = 1
+COLUMNS = 40
+DATA_SHA256 = "12f82ba2f0ca82fa3d8e846195a18b3bbaafec9135e9b31465b2f1a7130ac607"
+CONTROL_SHA256 = "a220a0d4444001eed5e576a4049e5702613b790b6232311455095a3ffb83a9b0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "lave_membership"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "lave_iterations"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "parametric_trim"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "nested_sdr"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "reference_intervals"
+ROWS = 1
+COLUMNS = 40
+TABLE_SHA256 = "65b28427def486ef2714b4eb6acee2a7cd3fa536cddae9638b6707bc0abee94b"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "outliers"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "outlier_sensitivity"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "partition_tests"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "partition_tails"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "verification"
+ROWS = 0
+COLUMNS = 0
+TABLE_SHA256 = "5021a18642f0f17c1bfce9b758550e34b4cc89b286b179e6dd71a5a4d6194c95"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "input_audit"
+ROWS = 240
+COLUMNS = 9
+TABLE_SHA256 = "be28c89e99482ce03a4c92332b8e3598b999ff7130bdf71502683b1f183a8887"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "group_membership"
+ROWS = 240
+COLUMNS = 9
+TABLE_SHA256 = "fad38448433b1cf768e7c2364c5f4e81c423d025539fa5c048af87b04e045fc9"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "table"
+NAME = "input_summary"
+ROWS = 1
+COLUMNS = 3
+TABLE_SHA256 = "46c9612e2980dba0e9b66b29b842833ff35b3528d492c68880e8604a92e2efa1"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+KIND = "charts"
+NAME = "charts"
+COUNT = 1
+SHA256 = "0f54d9cd9585ca40416b3b18a042bc7391a37ac42038eb59389094d63bab5614"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG]]
+SCHEMA_VERSION = 2
+EVENT_ID = "03268bba-3f46-494f-907d-308166f11ff5"
+RUN_ID = "cf9b8da8-ee1d-44ac-af54-498b60c6a29d"
+SEQUENCE = 4
+OPERATION_ID = "c00caa55-58c2-4df8-8156-e555bdb9df79"
+TIMESTAMP = "2026-09-13T23:45:13.123+00:00"
+FINISHED_AT = "2026-09-13T23:45:17.541+00:00"
+OPERATION = "CLI:RUN"
+STATUS = "SUCCEEDED"
+TOOL = "tametools"
+TOOL_VERSION = "0.4.0"
+CONTEXT_SHA256 = "79c39b944be9da3becaaa9c8af03936b02326455086f0ceec763599b40cb19ab"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+PARENT_EVENT_IDS = ["757a9a8c-3e21-4a91-9f1e-4687fc9369a6"]
+DURATION_MS = 4449.486
+NOTES = "created output=web/backend/examples/provenance_chain_result.tame from=web/backend/examples/provenance_chain_input.tame"
+SUMMARY = "created output=web/backend/examples/provenance_chain_result.tame from=web/backend/examples/provenance_chain_input.tame"
+PARENT = "web/backend/examples/provenance_chain_input.tame"
+OUTPUT = "web/backend/examples/provenance_chain_result.tame"
+EVENT_SHA256 = "5d39f352dbd1467589f604dbd26c99038ff1c5cd09f6390a4f3e752b0be6992f"
+
+[LOG.PARENT_HASHES]
+757a9a8c-3e21-4a91-9f1e-4687fc9369a6 = "c59366b1b9e5cc26e1d05734b1e99a47a01b76a54be4da77bd9f015e65ec63f6"
+
+[LOG.PARAMS]
+command = "tametools run web/backend/examples/provenance_chain_input.tame DEFAULT --output web/backend/examples/provenance_chain_result.tame"
+source_path = "web/backend/examples/provenance_chain_input.tame"
+source_paths = ["web/backend/examples/provenance_chain_input.tame"]
+output_path = "web/backend/examples/provenance_chain_result.tame"
+content_hash = "4fcdd0588d319025"
+output_hash = "4fcdd0588d319025"
+meta_preserved = true
+meta_keys = ["COLUMN", "PROVENANCE", "RI_EP28_RESULT", "VISUALIZATIONS"]
+raw_sections = ["META"]
+
+[LOG.EFFECTIVE_PARAMS]
+command = "tametools run web/backend/examples/provenance_chain_input.tame DEFAULT --output web/backend/examples/provenance_chain_result.tame"
+argv = ["run", "web/backend/examples/provenance_chain_input.tame", "DEFAULT", "--output", "web/backend/examples/provenance_chain_result.tame"]
+
+[LOG.COUNTS]
+INPUT_ROWS = 533
+INPUT_FILES = 1
+OUTPUT_ROWS = 1
+OUTPUT_COLUMNS = 40
+
+[[LOG.INPUTS]]
+ARTIFACT_ID = "db72c965b36d98173cae21b371d60675b9c13555c46d8a66d368052792bd65c8"
+KIND = "dataset"
+NAME = "web/backend/examples/provenance_chain_input.tame"
+ROWS = 533
+COLUMNS = 10
+DATA_SHA256 = "108efdd43dcc0f791e617badca49e8d86d48bc8e02188c4351a3db5640d05357"
+CONTROL_SHA256 = "22ea05168b6845e6619f48b311d7a07037a3c30c44f6ab72a7486dc725c7cee0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+
+[[LOG.OUTPUTS]]
+ARTIFACT_ID = "3eea7fd4ced520a88db04773d56f433e852e4080c0819337a99f907f95bed8e7"
+KIND = "dataset"
+NAME = "web/backend/examples/provenance_chain_result.tame"
+ROWS = 1
+COLUMNS = 40
+DATA_SHA256 = "12f82ba2f0ca82fa3d8e846195a18b3bbaafec9135e9b31465b2f1a7130ac607"
+CONTROL_SHA256 = "a220a0d4444001eed5e576a4049e5702613b790b6232311455095a3ffb83a9b0"
+HASH_SPEC = "tame-provenance-json-v2/sha256"
+</META>
+<DATA>
+[[STR::NULLABLE]]result_id	[[STR::NULLABLE]]test_name	[[STR::NULLABLE]]unit	[[STR::NULLABLE]]group	[[STR::NULLABLE]]partition_definition	[[STR::NULLABLE]]method	[[STR::NULLABLE]]primary	[[NUM::NULLABLE]]n_before_outliers	[[NUM::NULLABLE]]n	[[STR::NULLABLE]]unique_individual_ids_confirmed	[[NUM::NULLABLE]]censored_n	[[STR::NULLABLE]]outlier_method	[[STR::NULLABLE]]outlier_action	[[NUM::NULLABLE]]outliers_flagged	[[NUM::NULLABLE]]outliers_removed	[[NUM::NULLABLE]]coverage	[[NUM::NULLABLE]]ci_level	[[NUM::NULLABLE]]quantile_type	[[NUM::NULLABLE]]ref_low	[[NUM::NULLABLE]]ref_high	[[NUM::NULLABLE]]low_ci_low	[[NUM::NULLABLE]]low_ci_high	[[NUM::NULLABLE]]high_ci_low	[[NUM::NULLABLE]]high_ci_high	[[STR::NULLABLE]]ci_method	[[STR::NULLABLE]]status	[[STR::NULLABLE]]notes	[[STR::NULLABLE]]details	[[NUM::NULLABLE]]bootstrap_valid	[[STR::NULLABLE]]ci_details	[[STR::NULLABLE]]point_estimate	[[NUM::NULLABLE]]max_ci_width_ratio	[[NUM::NULLABLE]]shapiro_p	[[NUM::NULLABLE]]skewness	[[STR::NULLABLE]]normality_status	[[NUM::NULLABLE]]n_before_lave	[[NUM::NULLABLE]]lave_removed	[[NUM::NULLABLE]]n_before_parametric_trim	[[NUM::NULLABLE]]parametric_trim_removed	[[NUM::NULLABLE]]partition_context_missing_n
+alt	alt	U/L	ALL	{}	NONPARAMETRIC	True	240	240	True	0	NONE	FLAG	0	0	0.95	0.9	6	7.0	56.92499999999998	6.0	8.0	48.0	86.0	binomial_order_statistics	exploratory_only	Reference-population suitability not confirmed; these are sample-based candidate limits; CI width exceeds the configured fraction of RI width (review threshold, not a universal CLSI rule)	"{""quantile_type"": 6}"	0	"{""bounds"": [[6.0, 8.0], [48.0, 86.0]], ""ranks"": [[2, 11], [230, 239]], ""attained_confidence"": [0.9430243341949115, 0.9430243341949115], ""method"": ""binomial_order_statistics"", ""bootstrap_valid"": 0, ""warnings"": []}"	DIRECT	0.7611417125688535	4.315030553473778e-20	3.1982823556964366	review_non_normal	240	0	240	0	0
+</DATA>

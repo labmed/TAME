@@ -82,6 +82,8 @@ def _format_value(value: Any) -> str:
         return repr(value)
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, dict):
+        return "{ " + ", ".join(_format_key_part(k) + " = " + _format_value(v) for k, v in value.items()) + " }"
     if isinstance(value, list):
         return "[" + ", ".join(_format_value(item) for item in value) + "]"
     raise TypeError(f"Unsupported TOML value type: {type(value)!r}")

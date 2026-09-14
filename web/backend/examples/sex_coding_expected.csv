@@ -1,0 +1,7 @@
+﻿source,raw_sex,expected_sex
+A_0_1,0,female
+A_0_1,1,male
+A_0_1,1,male
+B_1_2,1,female
+B_1_2,2,male
+B_1_2,1,female

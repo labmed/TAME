@@ -1,4 +1,4 @@
-"""사용자 정의 범주형 어휘 정규화·검증 테스트 (reviewer C-2)."""
+"""사용자 정의 범주형 어휘 정규화·검증 테스트 ."""
 from __future__ import annotations
 
 import tempfile

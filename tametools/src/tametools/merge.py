@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from copy import deepcopy
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 
 from .cellstate import STATE_ABSENT, cell_state
+from .config import ci_get
+from .provenance import append_log_entry
 from .models import ColumnSpec, MergeResult, TameDataset
 from .pandas_compat import concat_dataframes
 from .tags import build_header, merge_tags, normalize_tag
@@ -26,10 +29,17 @@ def merge_datasets(
     dataset_list = list(datasets)
     if not dataset_list:
         raise ValueError("At least one dataset is required.")
+    if any(ci_get(ds.meta, "INTEGRATION_RESULT", None) is not None for ds in dataset_list):
+        raise ValueError("Integrated provenance cannot be merged automatically; restore original sources and integrate them together")
+    if len(dataset_list) > 1 and any(ci_get(ds.meta, "SURVEY", None) is not None for ds in dataset_list):
+        raise ValueError("Survey designs cannot be concatenated automatically; review cycle weights and design identifiers first")
 
     labels = list(source_labels or _default_labels(dataset_list))
     if len(labels) != len(dataset_list):
         raise ValueError("source_labels must have the same length as datasets.")
+
+    if add_source_column and (len(set(map(str, labels))) != len(labels) or any(not str(label).strip() for label in labels)):
+        raise ValueError("Source labels must be nonempty and unique to preserve source-specific normalization")
 
     numeric_policy = numeric_conflict.lower()
     if numeric_policy not in {"strict", "promote", "split", "harmonize"}:
@@ -48,6 +58,11 @@ def merge_datasets(
         canonical = _canonical_column(merge_key, specs, numeric_policy, warnings, prefer_tag_names=prefer_tag_names)
         key_to_column_name[merge_key] = canonical.name
         canonical_columns.append(ColumnSpec(original_header=canonical.original_header, name=canonical.name, tags=canonical.tags))
+
+    names = [column.name for column in canonical_columns]
+    if len(names) != len(set(names)) or (add_source_column and source_column_name in names):
+        raise ValueError("Merge would create duplicate column names; disambiguate names or IDs")
+    merged_metadata = _merged_column_metadata(dataset_list, merge_keys, key_to_column_name)
 
     merged_frames: list[pd.DataFrame] = []
     for dataset, label, key_map in zip(dataset_list, labels, merge_keys):
@@ -71,7 +86,10 @@ def merge_datasets(
 
     merged_df = concat_dataframes(merged_frames, ignore_index=True)
     merged_df = merged_df[[column.name for column in final_columns]]
-    merged = dataset_list[0].replace(df=merged_df, columns=final_columns, source_path=None)
+    meta = deepcopy(dataset_list[0].meta)
+    if merged_metadata:
+        meta["COLUMN"] = merged_metadata
+    merged = dataset_list[0].replace(df=merged_df, columns=final_columns, meta=meta, source_path=None, raw_sections={})
 
     if numeric_policy == "split":
         conflict_columns = [column.name for column in final_columns if column.has_tag("<NUM>") and any(warning.startswith(f"NUM_CONFLICT {column.name}") for warning in warnings)]
@@ -86,6 +104,12 @@ def merge_datasets(
                 if changed_rows > 0:
                     warnings.append(f"HARMONIZE_APPLIED changed_rows={changed_rows}")
 
+    merged = append_log_entry(merged, action='MERGE', inputs=dataset_list,
+        message=f'{len(dataset_list)}개 자료를 {len(merged.df)}행으로 병합했습니다.', warnings=warnings,
+        parameters={'source_labels': list(labels), 'source_column': source_column_name,
+                    'source_rows': {str(label): len(ds.df) for label, ds in zip(labels, dataset_list)},
+                    'numeric_conflict': numeric_policy, 'prefer_tag_names': prefer_tag_names,
+                    'add_source_column': add_source_column})
     return MergeResult(dataset=merged, warnings=warnings)
 
 
@@ -100,15 +124,44 @@ def _default_labels(datasets: list[TameDataset]) -> list[str]:
 
 
 def _dataset_merge_keys(dataset: TameDataset) -> dict[str, str]:
+    from .analysis_contract import column_ids
+
+    identifiers = {column.name: identifier for identifier, column in column_ids(dataset).items()}
     signature_counts = Counter(_semantic_signature(column) for column in dataset.columns if column.tags)
     keys: dict[str, str] = {}
     for column in dataset.columns:
         signature = _semantic_signature(column)
-        if signature and signature_counts[signature] == 1:
+        if column.name in identifiers:
+            keys[column.name] = f"id::{identifiers[column.name]}"
+        elif signature and signature_counts[signature] == 1:
             keys[column.name] = f"tag::{signature}"
         else:
             keys[column.name] = f"name::{column.name}"
     return keys
+
+
+def _merged_column_metadata(datasets, merge_keys, target_names):
+    grouped = defaultdict(list)
+    for dataset, keys in zip(datasets, merge_keys):
+        for column in dataset.columns:
+            grouped[keys[column.name]].append(dataset.column_metadata(column))
+    result = {}
+    for key, configs in grouped.items():
+        # A matching semantic role is not evidence of compatible units or derivations.
+        for field in ("UNIT", "CENSORING"):
+            values = [ci_get(config, field, None) for config in configs]
+            if any(value is not None for value in values) and any(value != values[0] for value in values[1:]):
+                raise ValueError(f"{field}_CONFLICT {key}: reconcile metadata explicitly before merging")
+        combined = {}
+        for config in configs:
+            for field, value in config.items():
+                if field in combined and combined[field] != value:
+                    # Declared metadata must not be silently taken from the first source.
+                    raise ValueError(f"METADATA_CONFLICT {key}.{field}")
+                combined[field] = deepcopy(value)
+        if combined:
+            result[target_names[key]] = combined
+    return result
 
 
 def _canonical_column(

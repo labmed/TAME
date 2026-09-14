@@ -2,7 +2,7 @@
 
 기관마다 다르게 표기하는 범주형 결과(Positive/양성/+ , Negative/음성/- 등)를 메타데이터에서 선언한
 표준 어휘로 통일한다. 부등호 수치(<NUM>)·성별·연령처럼 임상검사 데이터의 재현성을 위한 정규화 수단을
-범주형으로 일반화한 것이다(reviewer C-2).
+범주형으로 일반화한 것이다.
 
 META 선언 예::
 
@@ -52,12 +52,37 @@ def category_vocabularies(meta: dict) -> dict[str, dict]:
         if isinstance(mapping, dict):
             for source, target in mapping.items():
                 synonyms[str(source).strip().lower()] = str(target)
-        result[str(vocab)] = {"values": values, "synonyms": synonyms, "strict": strict}
+        source_column = ci_get(spec, "SOURCE_COLUMN", None)
+        source_maps = ci_get(spec, "SOURCE_MAPS", {}) or {}
+        if source_maps and (not isinstance(source_column, str) or not source_column.strip()):
+            raise ValueError(f"CATEGORIES.{vocab}: SOURCE_MAPS requires SOURCE_COLUMN")
+        if not isinstance(source_maps, dict) or any(not isinstance(m, dict) for m in source_maps.values()):
+            raise ValueError(f"CATEGORIES.{vocab}.SOURCE_MAPS must contain mapping tables")
+        scoped = {str(source): {str(k).strip().lower(): str(v) for k, v in mapping.items()}
+                  for source, mapping in source_maps.items()}
+        if scoped and any(v not in values for m in scoped.values() for v in m.values()):
+            raise ValueError(f"CATEGORIES.{vocab}: source mapping targets must be declared VALUES")
+        result[str(vocab)] = {"values": values, "synonyms": synonyms, "strict": strict,
+                              "source_column": source_column, "source_maps": scoped}
     return result
 
 
-def _vocab_for_column(column, vocabs: dict[str, dict]) -> str | None:
-    if not column.has_tag("CATEGORY"):
+def _row_synonyms(dataset, spec, row_idx, position=None):
+    """A scoped code is interpreted only in its own declared source."""
+    if not spec.get("source_maps"):
+        return spec["synonyms"]
+    source_column = spec["source_column"]
+    if source_column not in dataset.df.columns:
+        raise ValueError(f"Category source column is absent: {source_column}")
+    source = dataset.df[source_column].iloc[position] if position is not None else dataset.df.at[row_idx, source_column]
+    canonical = {v.strip().lower(): v for v in spec["values"]}
+    if cell_state(source) == STATE_VALUE:
+        canonical.update(spec["source_maps"].get(str(source), {}))
+    return canonical
+
+
+def _vocab_for_column(dataset, column, vocabs: dict[str, dict]) -> str | None:
+    if not dataset.column_has_tag(column, "CATEGORY"):
         return None
     for token in column.tags:
         if token in vocabs:
@@ -75,18 +100,17 @@ def normalize_categories(dataset: TameDataset) -> tuple[TameDataset, pd.DataFram
     frame = dataset.df.copy()
     rows: list[dict[str, Any]] = []
     for column in dataset.columns:
-        vocab = _vocab_for_column(column, vocabs)
+        vocab = _vocab_for_column(dataset, column, vocabs)
         if not vocab:
             continue
-        synonyms = vocabs[vocab]["synonyms"]
         changed = 0
         unmapped = 0
 
-        def _normalize(value: Any) -> Any:
+        def _normalize(row_idx: Any, value: Any, position: int) -> Any:
             nonlocal changed, unmapped
             if cell_state(value) != STATE_VALUE:
                 return value
-            canonical = synonyms.get(str(value).strip().lower())
+            canonical = _row_synonyms(dataset, vocabs[vocab], row_idx, position).get(str(value).strip().lower())
             if canonical is None:
                 unmapped += 1
                 return value
@@ -94,7 +118,7 @@ def normalize_categories(dataset: TameDataset) -> tuple[TameDataset, pd.DataFram
                 changed += 1
             return canonical
 
-        frame[column.name] = frame[column.name].map(_normalize)
+        frame[column.name] = pd.Series([_normalize(i, value, pos) for pos, (i, value) in enumerate(frame[column.name].items())], index=frame.index, dtype=object)
         rows.append({"column": column.name, "vocab": vocab, "changed_cells": changed, "unmapped_cells": unmapped})
 
     return dataset.with_df(frame), pd.DataFrame(rows, columns=columns)
@@ -105,17 +129,16 @@ def category_validation_issues(dataset: TameDataset) -> list[ValidationIssue]:
     vocabs = category_vocabularies(dataset.meta)
     issues: list[ValidationIssue] = []
     for column in dataset.columns:
-        vocab = _vocab_for_column(column, vocabs)
+        vocab = _vocab_for_column(dataset, column, vocabs)
         if not vocab or not vocabs[vocab]["strict"]:
             continue
         spec = vocabs[vocab]
         allowed = {value.lower() for value in spec["values"]}
-        synonyms = spec["synonyms"]
         series = dataset.df[column.name]
-        for row_idx, value in series.items():
+        for pos, (row_idx, value) in enumerate(series.items()):
             if cell_state(value) != STATE_VALUE:
                 continue
-            canonical = synonyms.get(str(value).strip().lower())
+            canonical = _row_synonyms(dataset, spec, row_idx, pos).get(str(value).strip().lower())
             if canonical is not None and canonical.lower() in allowed:
                 continue
             issues.append(
