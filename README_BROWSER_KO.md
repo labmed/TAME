@@ -25,7 +25,7 @@ py -3.12 scripts/start_tametools_browser.py
 bash Start_Chrome.sh
 ```
 
-macOS에는 더블클릭용 `Start_Chrome.command`도 포함했습니다. Linux에서 `venv` 또는 `ensurepip`를 찾지 못하면 해당 Python 버전의 `venv` 지원 패키지를 준비해야 합니다. Windows와 Linux에서 검증했으며, macOS 시작 스크립트는 포함했지만 이 작업 환경에서는 실제 실행을 검증하지 않았습니다.
+macOS에는 더블클릭용 `Start_Chrome.command`도 포함했습니다. Linux에서 `venv` 또는 `ensurepip`를 찾지 못하면 해당 Python 버전의 `venv` 지원 패키지를 준비해야 합니다.
 
 ## 다음 실행과 종료
 

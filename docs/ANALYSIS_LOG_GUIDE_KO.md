@@ -59,7 +59,7 @@ tametools audit chain_result.tame --json
 tametools verify web/backend/examples/provenance_chain_input.tame --work DEFAULT
 ```
 
-저장된 결과 예시는 같은 폴더의 `provenance_chain_result.tame`입니다. 현재 데이터·설정은 일치하고 구형 기록 2개 때문에 전체 이력은 일부만 확인으로 나오는 것이 정상입니다. 같은 환경에서 WORKS를 두 번 실행한 데이터·표·차트 지문 일치를 확인했습니다. 표본 추출은 기능 시험을 위한 것이며 이 예시를 임상 채택 구간으로 해석하지 않습니다.
+저장된 결과 예시는 같은 폴더의 `provenance_chain_result.tame`입니다. 현재 데이터·설정은 일치하고 구형 기록 2개 때문에 전체 이력은 일부만 확인으로 나오는 것이 정상입니다. `verify --work DEFAULT`로 같은 환경에서 두 번 실행한 데이터·표·차트 지문을 비교할 수 있습니다. 표본 추출은 기능 시험을 위한 것이며 이 예시를 임상 채택 구간으로 해석하지 않습니다.
 
 ## 새 기록의 구성
 

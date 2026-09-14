@@ -1,7 +1,6 @@
-"""Declared public-study RI extensions (Omuse 2020; Ichihara 2017).
+"""Reference-interval extensions (Omuse 2020; Ichihara 2017).
 
-These are inspectable numerical procedures, not a claim to reproduce unpublished
-software settings. LAVE excludes a target's own result from its screening panel.
+LAVE excludes a target's own result from its screening panel.
 """
 from __future__ import annotations
 import math

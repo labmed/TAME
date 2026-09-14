@@ -39,8 +39,8 @@ class NumericalTests(unittest.TestCase):
         result=e.robust_estimate(APPENDIX_B)
         self.assertAlmostEqual(result.details['location'],9.6244,delta=.0001)
         self.assertAlmostEqual(result.details['scale'],.27043,delta=.00001)
-        # The supplied appendix prints rounded intermediate constants. Record the
-        # full-precision discrepancy in validation; its final two-decimal RI agrees.
+        # The appendix rounds intermediate constants; allow for rounding error
+        # while checking the final reference limits to two decimal places.
         self.assertAlmostEqual(result.details['location_se'],.04816,delta=.00005)
         self.assertEqual(round(result.low,2),9.05)
         self.assertEqual(round(result.high,2),10.20)

@@ -483,7 +483,6 @@ def reference_interval_ep28(dataset,meta,step_name,options):
     results=[]; outlier_rows=[]; sensitivity=[]; partitions=[]; tails=[]; verifications=[]; membership=[]
     plot_groups=[]; trim_audit=[]; nested_rows=[]
     warnings=["Reference intervals describe a defined reference population; they are not diagnostic decision limits.",
-              "Implementation reviewed against supplied EP28-A3c sections 9 and 11 and Appendix B; clinical adoption requires laboratory review.",
               "Partition tests and normality p-values support review, not automatic clinical decisions."]
     if ci_get(dataset.meta,"SURVEY",None):warnings.append("Survey design is not used by this direct RI estimator; results are unweighted sample candidates")
     if cfg['LAVE']:

@@ -233,5 +233,3 @@ MISSINGNESS 필수: ID, RESULT_ID, POLICY, LOWER, UPPER, ASSUMPTION. GROUP은 �
 별도로 보관한 해당 셀 자료도 필요하다. 해시는 무결성 확인 수단이지 전자서명·익명화가 아니다.
 
 기존 모호한 방법 선택, 단위 없는 판정, 고정 기준 없는 WESTGARD 호출은 수정이 필요하다.
-이러한 오류를 숨기기 위해 과거 자동 동작을 복원하지 않는다. 전체 임상 운영 검증 또는
-native Excel 재시험과 이번 Python 분석 검증을 혼동하지 않는다.

@@ -7,7 +7,6 @@ CLSI EP28-A3c의 참고구간 설정·검증 절차를 참고한다.
 
 기존 `REFERENCE_INTERVAL`은 호환성을 위해 유지한다. **이 문서의 기능은 새 이름으로 실행한다.**
 새 플러그인은 표본 수에 따라 선택한 방법을 임의로 다른 방법으로 바꾸지 않는다.
-알고리즘의 수치 검증은 임상 사용 승인이나 CLSI의 제품 인증을 의미하지 않는다.
 
 ## 1. 빠른 실행
 
@@ -88,7 +87,7 @@ true에는 나머지 네 문서화 필드가 모두 필요하다. 이는 사용�
 | PARAMETRIC | 평균 ± 정규분포 z×표본 SD | 원 척도의 분포 가정 검토. 음수 하한을 임의로 0으로 바꾸지 않음 |
 | LOG_PARAMETRIC | ln 변환 후 모수법, 원 단위로 역변환 | 모든 포함값 >0 필요 |
 | BOXCOX_PARAMETRIC | 연속 최대우도 λ 적합 후 모수법·역변환 | 양수·비상수 표본. 역변환 정의역을 벗어나면 산출 불가 |
-| BOXCOX_SHIFTED_PARAMETRIC | 원점 `a`와 power를 선언한 범위에서 profile 최대우도로 적합한 modified Box–Cox | `BOXCOX`의 원점·power 탐색 범위와 경계 도달을 감사. 원 연구의 비공개 적합 설정까지 같다는 뜻은 아님 |
+| BOXCOX_SHIFTED_PARAMETRIC | 원점 `a`와 power를 선언한 범위에서 profile 최대우도로 적합한 modified Box–Cox | `BOXCOX`의 원점·power 탐색 범위와 경계 도달을 확인 |
 | ROBUST | 부록 B의 반복 biweight 위치, robust 척도, 위치 불확실성, t(n−1) 한계 | median±MAD 근사와 다름. 비대칭과 MAD=0을 검토 |
 | LOG_ROBUST | ln 척도에서 같은 robust 계산 후 역변환 | 양수 필요; 비대칭에 대한 대안으로 사전 지정 |
 | BOXCOX_ROBUST | Box-Cox 척도에서 같은 robust 계산 후 역변환 | λ를 각 bootstrap 재표집에서도 다시 적합 |
@@ -104,9 +103,6 @@ EP28 9.1은 robust의 특정 최소 n을 정하지 않는다. 기본 `MIN_CALCUL
 
 ROBUST는 초기 MAD/0.6745에 비례한 1e−10 수렴 기준과 최대 1,000회 반복을 쓴다.
 단위나 변환 척도가 달라도 고정 절대 오차 때문에 일찍 멈추지 않도록 한 선택이다.
-R 패키지의 고정 1e−6 기준과 차이가 있으며, 원 단위 복원 시 증폭되는 차이를 검증 자료에 공개한다.
-이 구현은 부록 B의 기본 알고리즘 및 명시적 변환 확장이다. 원문 Table 7의 모든 향상된
-반사·꼬리별 변환 기법을 재현한다고 주장하지 않는다.
 
 ## 4. 참고한계의 신뢰구간
 
@@ -124,24 +120,23 @@ R 패키지의 고정 1e−6 기준과 차이가 있으며, 원 단위 복원 �
 필요한 순위가 관측 범위 밖이면 끝 관측값으로 잘라 넣지 않고 해당 끝점을 미정으로 남긴다.
 실제 이산 CI의 달성 신뢰수준도 기록한다. 더 높은 CI_LEVEL에는 더 많은 표본이 필요하다.
 
-모수 CI의 SE는 `SD × sqrt((1 + z²/2)/n)`이며 referenceIntervals의 대표본 식과 대조했다.
+모수 CI의 SE는 `SD × sqrt((1 + z²/2)/n)`이다.
 정규성 비유의는 가정의 증명이 아니다. Shapiro–Wilk는 n=3–5,000에만 시행하고, 변환 방법은
 적합한 척도에서 검정한다. 보고서의 기본 Q-Q 그림은 원 척도이며 제목에 그 사실을 표시한다.
 
 `BOOTSTRAP_TYPE=PERCENTILE`(기본) 또는 `BASIC`, `BOOTSTRAP_N=50..20000`, `SEED`를 기록한다.
-기본 반복 수는 2,000이다. 실습의 200회는 실행 예시로서 꼬리 CI 안정성이 충분하다는 뜻이 아니다.
+기본 반복 수는 2,000이다. 반복 수를 줄이면 꼬리 CI가 불안정할 수 있다.
 유효 재표집이 95% 또는 50회 미만이면 CI를 보류하고, 나머지 경우도 실패 건수를 보고한다.
 재표집 CI는 선택·이상치 처리 후 표본에 조건부이며 대상자 선정과 분할 선택의 불확실성을 포함하지 않는다.
 R과 NumPy의 난수 생성기 및 `boot.ci` 보간법이 달라 같은 seed만으로 수치가 같아지지는 않는다.
 `BOOTSTRAP_QUANTILE=TYPE7`이 기본이다. `R_BOOT`는 R `boot::boot.ci`의 normal-quantile
 끝점 보간을 사용한다. `POINT_ESTIMATE=BOOTSTRAP_MEAN`은 재표집별 하한·상한의 평균을
-점추정으로 사용하며, 원 논문처럼 이 규칙을 명시한 재현 분석에만 사전 지정한다.
+점추정으로 사용한다. 이 규칙은 분석 전에 지정한다.
 
-## 5. 공개 참고인 연구 방법의 명시적 재현 옵션
+## 5. 변환 및 추가 설정
 
-케냐 IFCC 연구에서 사용한 방법 계열을 실행하려면 다음 설정을 명시한다. 이 설정은 공개
-논문에서 확인할 수 있는 절차를 구현한다. 원 논문의 개별 대상자 최종 선별표, 원점 최적화
-경계와 bootstrap 표본이 공개되지 않았다면 출판 수치의 완전 재현을 보장하지 않는다.
+이동 Box–Cox, 재표집 점추정, LAVE와 분할 진단을 함께 설정하는 예다.
+검사 ID, 탐색 범위, 재표집 횟수와 선별 기준은 분석 목적에 맞게 지정한다.
 
 ```toml
 METHOD = "BOXCOX_SHIFTED_PARAMETRIC"
@@ -178,14 +173,13 @@ LAVE는 각 대상 검사 자체를 선별 패널에서 제외하고 다른 참�
 
 `PARAMETRIC_TRIM_Z=2.81`은 변환 척도에서 한 번 주변 관측을 제외한 뒤 재적합한다.
 LAVE와 개별 검사 이상치 처리는 별개이며 `parametric_trim.csv`에 제외를 기록한다.
-`PARTITION_DIAGNOSTICS`에는 에티오피아 연구의 `WILCOXON`, 케냐 연구의 `SDR_BR`,
+`PARTITION_DIAGNOSTICS`에는 `WILCOXON`, `SDR_BR`,
 두 요인의 `NESTED_SDR`를 지정할 수 있다. `REPORTING_UNITS={"AST"=1}`처럼 보고 단위를
 주면 하한·상한 차이가 보고 단위의 세 배 이상인지 함께 기록한다. 어느 진단도 자동으로
 분할을 채택하지 않는다.
 
 `NORMALITY_TESTS=["SHAPIRO", "KS_LILLIEFORS"]`는 적합 척도의 Shapiro–Wilk와
-평균·분산 추정에 보정된 Lilliefors KS를 보고한다. 논문의 단순 “KS” 기술만으로 SPSS의
-세부 설정까지 확정할 수 없으므로 검정 이름을 결과에 명시한다.
+평균·분산 추정에 보정된 Lilliefors KS를 보고한다. 사용한 검정 이름을 결과에 명시한다.
 
 ## 6. 이상치 설정과 제거
 
@@ -198,10 +192,10 @@ LAVE와 개별 검사 이상치 처리는 별개이며 `parametric_trim.csv`에 
 | NONE | 이상치 판정 없음 |
 | TUKEY | type 7 사분위수의 IQR fence 밖을 표시. 기본 k=1.5, 경계와 같은 값은 유지 |
 | LOG_TUKEY | ln 척도 Tukey. 포함값이 모두 양수여야 함 |
-| HORN | Box-Cox λ를 −2..2, 0.1 간격에서 적합한 뒤 fence 판정. R Horn 구현과 경계 포함 여부까지 비교 |
+| HORN | Box-Cox λ를 −2..2, 0.1 간격에서 적합한 뒤 fence 판정 |
 | DIXON_Q | R outliers의 양측 Q 검정. n=3..30, n에 따라 r10/r11/r21/r22. α=.01/.05/.10 |
 | REED | EP28 9.2에 설명된 D/R ≥ 1/3 규칙. Dixon Q와 구분 |
-| COOK | 절편만 있는 모형의 Cook distance, 임계값 min(4/n,1). R 비교용 보조 선택지 |
+| COOK | 절편만 있는 모형의 Cook distance, 임계값 min(4/n,1) |
 
 `DIXON`이라는 모호한 이름은 허용하지 않는다. `DIXON_Q`는 n>30에서 Reed로 바뀌지 않는다.
 적용 범위를 벗어나면 해당 집단을 평가 불가로 남긴다. `TUKEY_K` 기본값은 1.5다.
@@ -313,41 +307,3 @@ NULL과 ABSENT를 구분하며 0으로 채우지 않는다.
 한 상태가 모든 주의사항을 담지는 않는다. 예를 들어 exploratory_only이면서 작은 표본·비대칭
 경고가 함께 있을 수 있으므로 notes와 CI를 읽는다. 보고서 첫 부분에는 표본 수·정밀도·분포·음수
 하한·분할·검증 판정에 따른 **해당 실행의 한글 해석**을 자동 작성한다.
-
-## 10. 산출 파일과 재현
-
-| 파일 | 내용 |
-|---|---|
-| reference_interval_report_ko.html | 그래프가 포함된 단독 열람 한글 보고서 |
-| reference_interval_report_ko.docx | 편집·공유 가능한 한글 보고서 |
-| reference_intervals.tame | 다음 작업에 연결할 수 있는 결과 데이터셋 |
-| tables/reference_intervals.csv | 방법별 한계·CI·n·분포 검토·상태·상세 계산 |
-| tables/outliers.csv, group_membership.csv | 표시된 원 관측과 집단별 실제 사용 여부 |
-| tables/outlier_sensitivity.csv | 이상치 제거 가정에 따른 구간 변화 |
-| tables/partition_tests.csv, partition_tails.csv | 분할 통계량, 집단별 꼬리·분모·CI |
-| tables/verification.csv | 사전 외부 구간의 20명 검증 판정 |
-| tables/input_audit.csv, input_summary.csv | 전체 입력의 사용/제외 이유와 분모 |
-| effective_input.json | 적용된 설정·메타데이터·입력 해시 |
-| manifest.json | 모듈 SHA-256, 실행 라이브러리 버전, 산출물 해시 |
-
-`source_row`는 DATA 표에서 헤더를 1행으로 센 위치이며 META를 포함한 텍스트 파일의 물리적 줄 번호가 아니다.
-문서에는 기본 200행, 그래프 12집단까지 표시한다. `REPORT_MAX_ROWS`, `PLOT_MAX_GROUPS`로 조정한다.
-CSV에는 생략 없이 전체 결과를 보존한다. `REPORT_PATH`로 DOCX 이름을 지정할 수 있다.
-PDF는 Word의 PDF 내보내기 또는 HTML의 인쇄로 만들 수 있다. 실습 폴더에 Word 변환 스크립트를 제공한다.
-
-직접 산출법으로서 복합조사 가중치·간접 참고구간·연속 연령 곡선·한쪽 참고한계·Box-Cox 자동 shift·
-다중 집단 자동 최적 분할·BCa bootstrap은 제공하지 않는다. 필요하면 별도 방법으로 연구를 설계한다.
-
-## 11. 근거와 수치 검증
-
-- 사용자 제공 CLSI EP28-A3c: 7–8장(선정·검사 조건), 9.1(n/정밀도), 9.2(이상치),
-  9.3(partition), 9.4(산출 예제), 11.2(검증), 부록 B(robust).
-- [CLSI EP28 공식 페이지](https://clsi.org/shop/standards/ep28/).
-- [CRAN referenceIntervals 1.3.1](https://cran.r-project.org/package=referenceIntervals), R 4.3.1에서 실제 실행.
-- [Horn, Pesce & Copeland 1998](https://pubmed.ncbi.nlm.nih.gov/9510871/).
-- [Harris & Boyd 1990](https://pubmed.ncbi.nlm.nih.gov/2302771/).
-- [Lahti et al. 2002](https://pubmed.ncbi.nlm.nih.gov/11805016/), [2004](https://pubmed.ncbi.nlm.nih.gov/15010425/).
-
-핵심 R 비교, 확장 독립 공식, 부록 B, 공통 재표집 및 경계조건 시험의 실행 결과는 함께 제공되는
-`REFERENCE_INTERVAL_EP28_VALIDATION_KO.md`에 기록한다. R의 GPL 패키지는 비교 환경에만 설치했고
-Python 제품 모듈에 R 소스나 바이너리를 포함하지 않는다. 사용자 제공 원문 PDF도 제품 배포물에 넣지 않는다.
