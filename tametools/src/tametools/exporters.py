@@ -50,7 +50,65 @@ class ExportResult:
 
 
 def available_export_formats() -> tuple[str, ...]:
+    """The formats that come with tametools. Plugins may add more: ``plugin_export_formats``."""
     return ("csv", "tsv", "jsonl", "sql", "parquet", "feather", "r_bundle")
+
+
+def plugin_export_formats(*, allow_plugins: bool = False) -> dict[str, tuple[str, ...]]:
+    """Formats added by plugins (``register_exporter``): name -> the output suffixes that select it."""
+    from .plugin_base.manager import plugin_exporters
+
+    return {name: spec.suffixes for name, spec in sorted(plugin_exporters(allow_external=allow_plugins).items())}
+
+
+def _format_help(allow_plugins: bool) -> str:
+    added = [name + (f" ({', '.join(suffixes)})" if suffixes else "") for name, suffixes in plugin_export_formats(allow_plugins=allow_plugins).items()]
+    return ("Formats: " + ", ".join(available_export_formats()) + (". From plugins: " + ", ".join(added) if added else "")
+            + ("" if allow_plugins else ". Formats of plugins outside the trusted folders need --allow-plugins"))
+
+
+def _plugin_exporter(format: str | None, output_path: Path, allow_plugins: bool):
+    """The plugin export format this request means, or None when it is one of tametools' own (which always win)."""
+    from .plugin_base.manager import plugin_exporters
+
+    if format is not None:
+        key = str(format).strip().lower()
+        if key in FORMAT_ALIASES:
+            return None
+        spec = plugin_exporters(allow_external=allow_plugins).get(key)
+        if spec is None:
+            raise ValueError(f"Unsupported export format: {format}. " + _format_help(allow_plugins))
+        return spec
+    if output_path.suffix.lower() in SUFFIX_FORMATS or output_path.suffix == "":
+        return None
+    name = output_path.name.lower()
+    matches = [(suffix, spec) for spec in plugin_exporters(allow_external=allow_plugins).values() for suffix in spec.suffixes if name.endswith(suffix)]
+    if not matches:
+        raise ValueError(f"Cannot infer export format from output path: {output_path}. Give --format. " + _format_help(allow_plugins))
+    return max(matches, key=lambda item: (len(item[0]), item[1].name))[1]      # ".fhir.json" before ".json"
+
+
+def _export_with_plugin(spec, dataset: TameDataset, output_path: Path) -> ExportResult:
+    from .plugin_base.base import PluginError
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    written = spec.write(dataset, output_path)
+    if written is None:
+        files = [output_path]
+    elif isinstance(written, (str, Path)):
+        files = [Path(written)]
+    else:
+        try:
+            files = [Path(item) for item in written]
+        except TypeError:
+            files = None
+    if not files or any(not isinstance(item, Path) for item in files):
+        raise PluginError(f"Export format {spec.name} must return the path(s) it wrote (or nothing for the output path itself), "
+                          f"not {type(written).__name__}")
+    missing = [str(path) for path in files if not path.exists()]
+    if missing:
+        raise PluginError(f"Export format {spec.name} did not write: " + ", ".join(missing))
+    return ExportResult(format=spec.name, output_path=str(output_path), files=tuple(str(path) for path in files))
 
 
 def export_dataset(
@@ -61,9 +119,17 @@ def export_dataset(
     bundle_data_format: str = "csv",
     include_schema: bool = True,
     include_job: bool = True,
+    allow_plugins: bool = False,
 ) -> ExportResult:
-    normalized = normalize_export_format(format or infer_export_format(output))
+    """Write the dataset in an external format: one of tametools' own, or one a plugin registered.
+
+    ``allow_plugins`` also counts formats of plugins outside the trusted folders (the --allow-plugins switch).
+    """
     output_path = Path(output)
+    exporter = _plugin_exporter(format, output_path, allow_plugins)
+    if exporter is not None:
+        return _export_with_plugin(exporter, dataset, output_path)
+    normalized = normalize_export_format(format or infer_export_format(output))
     if normalized == "r_bundle":
         return export_r_bundle(
             dataset,
@@ -204,6 +270,14 @@ def _export_sql(dataset: TameDataset, output_path: Path) -> ExportResult:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(_sql_script(dataset, base_name=_sql_base_name(output_path)), encoding="utf-8")
     return ExportResult(format="sql", output_path=str(output_path), files=(str(output_path),))
+
+
+def export_frame(dataset: TameDataset) -> pd.DataFrame:
+    """The table as tametools exports it: every cell as text in its TAME spelling, SEX standardized, columns in order.
+
+    For export formats written by plugins, so that they agree with the csv/tsv/jsonl exports cell for cell.
+    """
+    return _serialized_export_frame(dataset)
 
 
 def _serialized_export_frame(dataset: TameDataset) -> pd.DataFrame:

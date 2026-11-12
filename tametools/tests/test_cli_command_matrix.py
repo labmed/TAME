@@ -155,6 +155,9 @@ COMMANDS = [
     "split-tame",
     "attach-meta",
     "import-xlsx",
+    "sync",
+    "qc-action",
+    "qc-review",
 ]
 
 

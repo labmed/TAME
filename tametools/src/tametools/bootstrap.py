@@ -117,13 +117,18 @@ def infer_column_tags(name: str, series: pd.Series) -> tuple[str, ...]:
     return ("STR",)
 
 
-def _read_table(path: Path, sheet: str | None) -> pd.DataFrame:
+def _read_table(path: Path, sheet: str | None, encoding: str | None = None) -> pd.DataFrame:
     suffix = path.suffix.lower()
     if suffix in (".xlsx", ".xls"):
+        if encoding:
+            raise ValueError("An encoding applies to .csv and .tsv tables; a workbook stores its text as Unicode")
         return pd.read_excel(path, sheet_name=sheet if sheet is not None else 0, dtype=str, keep_default_na=False)
-    if suffix == ".tsv":
-        return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
-    return pd.read_csv(path, dtype=str, keep_default_na=False)
+    from io import StringIO
+    from .text_encoding import TABLE_HINT, decode_named, decode_utf8
+    data = path.read_bytes()
+    # UTF-8 unless the encoding of the table is named. Another encoding is never guessed at.
+    text = decode_named(data, encoding, str(path)) if encoding else decode_utf8(data, str(path), hint=TABLE_HINT)
+    return pd.read_csv(StringIO(text), sep="\t" if suffix == ".tsv" else ",", dtype=str, keep_default_na=False)
 
 
 def _toml_quote(key: str) -> str:
@@ -132,7 +137,7 @@ def _toml_quote(key: str) -> str:
 
 def init_from_table(input_path: str | Path, output_path: str | Path, *, sheet: str | None = None,
                     definitions_path: str | Path | None = None, interactive: bool = False,
-                    input_fn=None, output_fn=None) -> dict:
+                    input_fn=None, output_fn=None, encoding: str | None = None) -> dict:
     """Infer a starter, expose unresolved interpretation, and accept reviewed TOML definitions."""
     from .io import write_tame
     from .models import TameDataset, ColumnSpec
@@ -143,7 +148,7 @@ def init_from_table(input_path: str | Path, output_path: str | Path, *, sheet: s
     from .toml_compat import dumps
 
     p, out = Path(input_path), Path(output_path)
-    df = _read_table(p, sheet)
+    df = _read_table(p, sheet, encoding)
     definitions_file = Path(definitions_path) if definitions_path is not None else None
     definitions = load_definitions(definitions_file)
     configs = definitions.get("COLUMN", {})
@@ -169,6 +174,9 @@ def init_from_table(input_path: str | Path, output_path: str | Path, *, sheet: s
     meta["INFO"] = {"DESCRIPTION": "starter TAME; review unresolved interpretation before analysis",
                     "SOURCE_FILE": p.name, "SOURCE_SHEET": source_sheet or "",
                     "SOURCE_SHA256": hashlib.sha256(p.read_bytes()).hexdigest(), "GENERATED_BY": "tametools init"}
+    if encoding:
+        import codecs
+        meta["INFO"]["SOURCE_ENCODING"] = codecs.lookup(encoding).name      # the table was converted to UTF-8 on the way in
     declared_settings = [str(k).upper() for k in definitions.get("SETTINGS", {})]
     meta["SETTINGS"] = {"VALIDATE_ERROR": "KEEP", "CRR": "VALUE", **definitions.get("SETTINGS", {})}
     meta["INIT"] = {"REVIEW_VERSION": 2, "TYPES": physical_types, "DECLARED_SETTINGS": declared_settings,
@@ -208,6 +216,7 @@ def init_from_table(input_path: str | Path, output_path: str | Path, *, sheet: s
     dataset = append_log_entry(dataset, action="INIT", message=f"starter and interpretation review generated from {p.name}",
         input_dataset=original_dataset,
         parameters={"SOURCE_FILE": p.name, "SOURCE_SHEET": source_sheet or "", "SOURCE_SHA256": meta["INFO"]["SOURCE_SHA256"],
+                    **({"SOURCE_ENCODING": meta["INFO"]["SOURCE_ENCODING"]} if encoding else {}),
                     "ROWS": len(df), "INPUT_COLUMNS": len(specs), "REQUIRED_DEFINITIONS": len(required),
                     "DEFINITIONS_SHA256": meta["INIT"]["DEFINITIONS_SHA256"], "DECISIONS_SHA256": decisions_hash,
                     "OPTIONS": dataset.meta.get("INIT_OPTIONS", {}), "TRANSFORMATIONS": transformations})

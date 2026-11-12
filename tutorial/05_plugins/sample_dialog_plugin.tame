@@ -1,0 +1,24 @@
+<META>
+[INFO]
+DESCRIPTION = "External plugin example that declares its questions: missing settings are asked in a dialog window"
+
+[SETTINGS]
+VALIDATE_ERROR = "REPORT"
+CRR = "VALUE"
+
+[PLUGINS]
+MODULES = [
+  "tutorial.plugin_examples.dialog_form_plugin",
+]
+</META>
+<DATA>
+[[TESTNAME]]검사항목명	[[SEX]]성별	[[AGE]]나이	[[RESULT::<NUM>]]보고값
+AST	M	5	10
+AST	F	15	12
+AST	M	25	<30
+AST	F	72	20
+ALT	M	35	30
+ALT	F	82	40
+ALT	M	44	45
+ALT	F	63	42
+</DATA>

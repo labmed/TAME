@@ -1,0 +1,157 @@
+<META>
+# 임상화학 일일 정도관리(QC) 누적 파일 예제. 합성 관리물질 자료이며 환자 자료가 아닙니다.
+#
+# 파일은 셋뿐이고 이름이 바뀌지 않습니다.
+#   qc_chem_daily.xlsx   검사실에서 매일 행을 추가하는 원본
+#   qc_chem.tame         이 파일: 설정 + 원본 스냅숏 + 동기화 이력
+#   qc_chem_result.tame  Westgard 판정 결과 (매번 같은 파일을 갱신)
+#
+# 실행:  tametools sync qc_chem.tame
+# 이 위쪽(직접 작성한 설정과 주석)은 sync 가 그대로 보존합니다.
+# 파일 끝의 [SYNC_STATE], [[LOG]], [PROVENANCE] 는 sync 가 관리하므로 직접 고치지 않습니다.
+
+[INFO]
+DESCRIPTION = "Daily clinical chemistry QC log kept in one Excel file. Synthetic control data, not patient data."
+LICENSE = "CC0-1.0"
+
+[PLUGINS]
+ENABLED = ["WESTGARD_QC"]
+
+[SYNC]
+SOURCE = "qc_chem_daily.xlsx"                 # 계속 행이 쌓이는 원본 (이 파일 기준 상대 경로)
+SHEET = "QC"
+KEY_IDS = ["time", "level", "instrument"]    # 한 행(관리물질 1회 측정)을 식별하는 열의 COLUMN.ID
+WORK = "QC"                                   # 동기화할 때마다 전체 스냅숏에 실행할 WORKS 이름
+RESULT = "qc_chem_result.tame"               # 결과 파일 하나를 계속 갱신 (.tame 또는 .xlsx)
+REPORT = "qc_chem_report.html"               # 관리도(Levey-Jennings)가 들어간 보고서. 매번 같은 파일을 갱신
+ON_CHANGE = "STOP"                            # 이미 동기화한 행의 수정/삭제는 확인 전까지 저장하지 않음
+
+[WORKS]
+QC = ["VALIDATE", "WESTGARD_QC"]
+
+[COLUMN."측정일시"]
+ID = "time"
+TAGS = ["DATETIME"]
+
+[COLUMN."장비"]
+ID = "instrument"
+TAGS = ["INSTRUMENT", "CATEGORY"]
+
+[COLUMN.Lot]
+ID = "lot"
+TAGS = ["CATEGORY"]
+
+[COLUMN.Level]
+ID = "level"
+TAGS = ["QC_LEVEL", "CATEGORY"]
+
+[COLUMN.Glucose]
+ID = "glucose"
+UNIT = "mg/dL"
+TAGS = ["RESULT", "NUM", "NULLABLE"]
+
+[COLUMN.Creatinine]
+ID = "creatinine"
+UNIT = "mg/dL"
+TAGS = ["RESULT", "NUM", "NULLABLE"]
+
+[COLUMN.ALT]
+ID = "alt"
+UNIT = "U/L"
+TAGS = ["RESULT", "NUM", "NULLABLE"]
+
+[COLUMN."비고"]
+ID = "note"
+TAGS = ["STR"]
+
+[WESTGARD_QC]
+RESULT_IDS = ["glucose", "creatinine", "alt"]
+TIME_ID = "time"                  # run 열이 없으면 측정일시가 같은 행들이 하나의 run
+LEVEL_ID = "level"
+LOT_ID = "lot"
+INSTRUMENT_ID = "instrument"
+TIMEZONE = "Asia/Seoul"           # 엑셀 날짜에는 시간대가 없으므로 명시
+WARNING_RULES = ["1_2s"]
+RULES = ["1_3s", "2_2s", "R_4s", "4_1s", "10x"]
+
+[WESTGARD_QC.REPORT]
+TITLE = "임상화학 일일 정도관리 보고서"
+LAST_RUNS = 30                    # 관리도와 통계에 표시할 최근 run 수
+
+# 기준값(평균/SD)은 이 자료에서 다시 계산하지 않고 검토해 선언한 값을 씁니다.
+# lot 이 바뀌면 새 BASELINES 항목을 추가합니다(유효기간으로 구분).
+[[WESTGARD_QC.BASELINES]]
+RESULT_ID = "glucose"
+LEVEL = "1"
+LOT = "45871"
+INSTRUMENT = "AU5800-1"
+MEAN = 90.0
+SD = 2.0
+UNIT = "mg/dL"
+REFERENCE = "Synthetic example baseline"
+VALID_FROM = "2026-10-01"
+VALID_TO = "2027-04-01"
+
+[[WESTGARD_QC.BASELINES]]
+RESULT_ID = "glucose"
+LEVEL = "2"
+LOT = "45872"
+INSTRUMENT = "AU5800-1"
+MEAN = 280.0
+SD = 5.0
+UNIT = "mg/dL"
+REFERENCE = "Synthetic example baseline"
+VALID_FROM = "2026-10-01"
+VALID_TO = "2027-04-01"
+
+[[WESTGARD_QC.BASELINES]]
+RESULT_ID = "creatinine"
+LEVEL = "1"
+LOT = "45871"
+INSTRUMENT = "AU5800-1"
+MEAN = 0.90
+SD = 0.03
+UNIT = "mg/dL"
+REFERENCE = "Synthetic example baseline"
+VALID_FROM = "2026-10-01"
+VALID_TO = "2027-04-01"
+
+[[WESTGARD_QC.BASELINES]]
+RESULT_ID = "creatinine"
+LEVEL = "2"
+LOT = "45872"
+INSTRUMENT = "AU5800-1"
+MEAN = 5.20
+SD = 0.12
+UNIT = "mg/dL"
+REFERENCE = "Synthetic example baseline"
+VALID_FROM = "2026-10-01"
+VALID_TO = "2027-04-01"
+
+[[WESTGARD_QC.BASELINES]]
+RESULT_ID = "alt"
+LEVEL = "1"
+LOT = "45871"
+INSTRUMENT = "AU5800-1"
+MEAN = 32.0
+SD = 1.5
+UNIT = "U/L"
+REFERENCE = "Synthetic example baseline"
+VALID_FROM = "2026-10-01"
+VALID_TO = "2027-04-01"
+
+[[WESTGARD_QC.BASELINES]]
+RESULT_ID = "alt"
+LEVEL = "2"
+LOT = "45872"
+INSTRUMENT = "AU5800-1"
+MEAN = 120.0
+SD = 4.0
+UNIT = "U/L"
+REFERENCE = "Synthetic example baseline"
+VALID_FROM = "2026-10-01"
+VALID_TO = "2027-04-01"
+</META>
+<DATA>
+측정일시	장비	Lot	Level	Glucose	Creatinine	ALT	비고
+</DATA>

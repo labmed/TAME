@@ -1,10 +1,10 @@
-# Build and release tametools 0.4.0
+# Build and release tametools 0.5.0
 
 ## Python library and CLI
 
 ```sh
 python -m pip install build
-python -m build --outdir dist/0.4.0 tametools
+python -m build --outdir dist/0.5.0 tametools
 ```
 
 ## Browser UI
@@ -37,14 +37,14 @@ After building Python, frontend, and Windows artifacts:
 python scripts/package_release.py
 ```
 
-Files in `dist/0.4.0`:
+Files in `dist/0.5.0`:
 
-- `tametools-0.4.0-py3-none-any.whl`: Python CLI/library
-- `tametools-0.4.0.tar.gz`: Python source distribution
-- `tametools-0.4.0-source.zip`: complete source checkout without Git history or build caches
-- `tametools-0.4.0-browser-local.zip`: Chrome bundle, including the prebuilt frontend
-- `tametools-0.4.0-windows-x64-portable.zip`: both EXEs and their complete runtime
-- `tametools-0.4.0-x64.msi`: Windows installer
+- `tametools-0.5.0-py3-none-any.whl`: Python CLI/library
+- `tametools-0.5.0.tar.gz`: Python source distribution
+- `tametools-0.5.0-source.zip`: complete source checkout without Git history or build caches
+- `tametools-0.5.0-browser-local.zip`: Chrome bundle, including the prebuilt frontend
+- `tametools-0.5.0-windows-x64-portable.zip`: both EXEs and their complete runtime
+- `tametools-0.5.0-x64.msi`: Windows installer
 - `SOURCE_SHA256.json`: source-file checksums
 - `SHA256SUMS.txt`: archive checksums
 - `BUILD_VERIFICATION.json`: checks executed for this build, when present
@@ -54,7 +54,7 @@ Files in `dist/0.4.0`:
 
 Commit the program files from this checkout. `.gitignore` excludes `dist/`, build directories, local environments, and runtime outputs. Review `git status` and `git diff` before creating the commit.
 
-Create a release for tag `v0.4.0` at the chosen source commit. Attach the files listed above from `dist/0.4.0` and use [the release notes](RELEASE_NOTES_v0.4.0.md) as its description. Upload the prebuilt browser ZIP as an explicit asset; the automatic GitHub source ZIP does not contain a frontend build.
+Create a release for tag `v0.5.0` at the chosen source commit. Attach the files listed above from `dist/0.5.0` and use [the release notes](RELEASE_NOTES_v0.5.0.md) as its description. Upload the prebuilt browser ZIP as an explicit asset; the automatic GitHub source ZIP does not contain a frontend build.
 
 Large installers belong in Release assets: [GitHub blocks ordinary Git files above 100 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github). See [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
 

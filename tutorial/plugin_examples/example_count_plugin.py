@@ -62,9 +62,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from tametools.config import ci_get
-from tametools.models import OperationOutput, TameDataset, merged_column_specs
-from tametools.plugin_base.base import register_plugin
+from tametools.plugin_api import OperationOutput, TameDataset, ci_get, merged_column_specs, register_plugin
 
 
 @register_plugin(

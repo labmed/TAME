@@ -27,15 +27,18 @@ from tametools.io import (
     _sheet_dataset,
     _sheet_text,
     _source_column_name,
+    load_workbook_values,
     read_tame,
     read_xlsx,
+    refuse_unevaluated_formulas,
     write_tame,
     write_xlsx,
 )
 from tametools.merge import merge_datasets
 from tametools.models import ColumnSpec, TameDataset, merged_column_specs
 from tametools.plugin_base import configured_plugin_modules, list_plugins, run_plugin
-from tametools.plugin_base.base import normalize_plugin_name
+from tametools.plugin_base.base import normalize_plugin_name, PluginSpec
+from tametools.plugin_base.selection import selected_plugin_names, with_plugin_selection, plugin_selection_state
 from tametools.plugin_base.roles import role_contract_payload
 from tametools.presets import apply_preset, preset_payloads
 from tametools.models import OperationOutput
@@ -55,6 +58,12 @@ from tametools.transforms import fix_num_comparator_values
 
 
 MAX_GRID_ROWS = 5000
+# An [ANALYSES] entry without PLUGIN means this plugin: files written before the key existed still run. The one
+# plugin name the workbench writes out itself; every other name comes from a file or from a plugin's declaration.
+LEGACY_ANALYSIS_PLUGIN = "CHEMISTRY_ANALYSIS"
+
+
+WEB_MANAGED_PATH_KEYS = {"OUTPUT_DIR", "REPORT_PATH"}    # plugin settings that name a place on disk; never taken from an opened file
 
 
 @dataclass(frozen=True)
@@ -65,11 +74,14 @@ class StoredUpload:
 
 
 def inspect_xlsx(path: str | Path) -> list[dict[str, Any]]:
-    workbook = openpyxl.load_workbook(path, data_only=False, read_only=True)
-    try:
-        return [_inspect_sheet(workbook[sheet_name]) for sheet_name in workbook.sheetnames]
-    finally:
-        workbook.close()
+    # The file is opened here and closed here. A read-only workbook keeps reading from it while rows are fetched,
+    # and with some openpyxl versions closing the workbook alone leaves the file locked until memory is collected.
+    with open(path, "rb") as stream:
+        workbook = openpyxl.load_workbook(stream, data_only=False, read_only=True)
+        try:
+            return [_inspect_sheet(workbook[sheet_name]) for sheet_name in workbook.sheetnames]
+        finally:
+            workbook.close()
 
 
 def load_tame_payload(
@@ -86,12 +98,13 @@ def load_tame_payload(
 
 
 def is_tame_workbook(path: str | Path) -> bool:
-    workbook = openpyxl.load_workbook(path, data_only=False, read_only=True)
-    try:
-        sheet_names = {name.upper() for name in workbook.sheetnames}
-        return "DATA" in sheet_names and "META" in sheet_names
-    finally:
-        workbook.close()
+    with open(path, "rb") as stream:
+        workbook = openpyxl.load_workbook(stream, data_only=False, read_only=True)
+        try:
+            sheet_names = {name.upper() for name in workbook.sheetnames}
+            return "DATA" in sheet_names and "META" in sheet_names
+        finally:
+            workbook.close()
 
 
 def load_tame_workbook_payload(
@@ -127,11 +140,12 @@ def convert_xlsx_selection(
     if normalized_mode == "single":
         selected = selected[:1]
 
-    workbook = openpyxl.load_workbook(path, data_only=True)
+    workbook = load_workbook_values(path)
     try:
         missing = [name for name in selected if name not in workbook.sheetnames]
         if missing:
             raise ValueError(f"Unknown worksheet(s): {', '.join(missing)}")
+        refuse_unevaluated_formulas(path, selected)      # a formula with no stored result would read as an empty cell
 
         controls = _workbook_controls(workbook)
         warnings = selection_warnings(path, selected, mode=normalized_mode)
@@ -205,8 +219,9 @@ def dataset_payload(
     tag_storage: str = "preserve",
     max_rows: int = MAX_GRID_ROWS,
 ) -> dict[str, Any]:
-    from .workbench_analysis import data_context, data_role
+    from .workbench_analysis import data_context, data_role, reference_plugin
     plugin_list, plugin_warnings = plugin_payloads(dataset.meta)
+    reference = reference_plugin()
     all_warnings = [*(warnings or []), *plugin_warnings]
     settings = dataset.settings()
     row_limit = min(len(dataset.df), max_rows)
@@ -226,7 +241,8 @@ def dataset_payload(
         "kind": "dataset",
         "dataRole": data_role(dataset),
         "dataContext": data_context(dataset),
-        "referenceSettings": json_safe(ci_get(dataset.meta, "RI_EP28", {})),
+        "referenceSettings": json_safe(ci_get(dataset.meta, reference, {})) if reference else {},
+        "defaultPlugin": str(ci_get(ci_get(dataset.meta,"INFO",{}),"DEFAULT_PLUGIN","")),
         "sexNormalization": json_safe(ci_get(dataset.meta, "SEX_NORMALIZATION", {})),
         "filename": filename,
         "rowCount": len(dataset.df),
@@ -258,7 +274,10 @@ def dataset_payload(
         "analyses": analysis_payloads(dataset.meta),
         "charts": chart_payloads(dataset),
         "presets": preset_payloads(),
-        "plugins": plugin_list,
+        "plugins": [plugin for plugin in plugin_list if plugin["enabled"]],
+        "pluginCatalog": plugin_list,
+        "pluginSelection": plugin_selection_state(dataset.meta, _web_plugin_specs(dataset.meta)),
+        "pluginView": plugin_view_summary(dataset),
         "tagCatalog": tag_catalog_payload(dataset.meta),
         "tagDefinitions": tag_definition_payloads(dataset.meta),
         "commonTags": flat_tag_names(dataset.meta),
@@ -592,6 +611,9 @@ def create_web_plugin_payload(payload: dict[str, Any], options: dict[str, Any], 
     dataset = dataset_from_payload(payload, standardize=False)
     module_name = _web_plugin_module_name(plugin_name)
     meta = _meta_with_web_plugin(dataset.meta, plugin_name, module_name, description, source)
+    selected = selected_plugin_names(meta)
+    if selected is not None:
+        meta = with_plugin_selection(meta, [*selected, plugin_name])
     updated = dataset.replace(meta=meta, raw_sections=_raw_sections_with_meta(dataset, meta))
     output_name = derived_filename(payload, f"plugin_{_plugin_slug(plugin_name)}")
     updated = append_log_entry(
@@ -605,20 +627,183 @@ def create_web_plugin_payload(payload: dict[str, Any], options: dict[str, Any], 
     return dataset_payload(updated, filename=output_name)
 
 
-@web_operation('PLUGIN_RUN')
-def run_web_plugin_payload(payload: dict[str, Any], options: dict[str, Any], workspace: str | Path) -> dict[str, Any]:
+@web_operation('PLUGIN_SELECTION')
+def select_plugins_payload(payload: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+    if "enabled" not in options:
+        raise ValueError('enabled is required: a list of plugin names, or null for all plugins')
+    dataset = dataset_from_payload(payload, standardize=False)
+    before = selected_plugin_names(dataset.meta)
+    meta = with_plugin_selection(dataset.meta, options["enabled"])
+    after = selected_plugin_names(meta)
+    if before == after:
+        return dataset_payload(dataset, filename=payload_filename(payload))
+    updated = append_log_entry(dataset.replace(meta=meta), action='PLUGIN_SELECTION',
+        input_dataset=dataset, parameters={'before': before, 'after': after},
+        message='이 TAME 파일에서 사용할 플러그인을 설정했습니다.')
+    return dataset_payload(updated, filename=payload_filename(payload))
+
+
+class PluginAnswersError(ValueError):
+    """Answers to a plugin's declared questions that cannot be accepted. ``fields``: question key -> message."""
+
+    def __init__(self, fields: dict[str, str]):
+        super().__init__(" / ".join(fields.values()))
+        self.fields = dict(fields)
+
+
+def _runs_in_reference_panel(plugin_name: str) -> bool:
+    """Is this the plugin that declared the reference-interval screen (under any of its names)? It runs through that screen."""
+    from .workbench_analysis import reference_plugin_names
+    return plugin_name in reference_plugin_names()
+
+
+def _requested_plugin(options: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     plugin_name = str(options.get("plugin") or options.get("name") or "").strip()
     if not plugin_name:
         raise ValueError("Plugin name is required.")
     plugin_options = options.get("pluginOptions", {})
     if not isinstance(plugin_options, dict):
         raise ValueError("pluginOptions must be an object.")
+    return plugin_name, plugin_options
 
-    if plugin_name in {"RI_EP28", "REFERENCE_INTERVAL_EP28"}:
+
+def _plugin_settings(dataset: TameDataset, plugin_name: str, plugin_options: dict[str, Any]) -> dict[str, Any]:
+    """The plugin's table in META with the requested options put over it."""
+    declared = ci_get(dataset.meta, plugin_name, {})
+    if not isinstance(declared, dict):
+        raise ValueError("Plugin META settings must be a table")
+    effective = deepcopy(declared)
+    for key, value in plugin_options.items():
+        effective = {k:v for k,v in effective.items() if str(k).upper() != str(key).upper()}
+        effective[key] = value
+    return effective
+
+
+def _plugin_questions(spec, dataset: TameDataset, settings: dict[str, Any]):
+    """What a plugin declared with register_plugin(form=...), as a person is shown it, or None.
+
+    Returns (declared form, the form with the current values kept selectable, starting values): the same three steps
+    as ``tametools.dialogs.ask``, without its window. The browser draws the form; the server never opens one.
+    """
+    from tametools import dialogs
+    made = dialogs.plugin_form(spec, dataset, settings)
+    if made is None:
+        return None
+    start = dialogs.initial(made, settings)
+    return made, dialogs._keeping_current(made, start), start
+
+
+def plugin_form_payload(payload: dict[str, Any], options: dict[str, Any], workspace: str | Path) -> dict[str, Any]:
+    """The questions a plugin declared, for the browser to draw. ``form`` is None when it declared none."""
+    from tametools import dialogs
+    from tametools.plugin_base import get_plugin
+    plugin_name, plugin_options = _requested_plugin(options)
+    answer = {"plugin": normalize_plugin_name(plugin_name), "requiresTrust": False, "form": None}
+    if _runs_in_reference_panel(plugin_name):
+        return answer
+    dataset = dataset_from_payload(payload, standardize=False)
+    allowed = plugins_explicitly_allowed(options)
+    if allowed:
+        dataset = materialize_web_plugins(dataset, workspace)
+    spec = get_plugin(plugin_name, dataset.meta, allow_external=allowed)
+    if spec is None:
+        # The declaration of an external plugin is in its code, and looking means importing it: that waits for the
+        # same trust as running it. A plugin written in the workbench (WEB_PLUGINS) cannot declare questions.
+        embedded = answer["plugin"] in {normalize_plugin_name(name) for name in web_plugin_configs(dataset.meta)}
+        answer["requiresTrust"] = not allowed and not embedded
+        return answer
+    questions = _plugin_questions(spec, dataset, _plugin_settings(dataset, plugin_name, plugin_options))
+    if questions is None:
+        return answer
+    _made, shown, start = questions
+    typed, _errors = dialogs.check_answers(shown, start)       # a starting value that can be accepted, as its typed self
+    answer["form"] = {
+        "title": shown.title,
+        "intro": shown.intro,
+        "submit": shown.submit,
+        "fields": [
+            {
+                "key": item.key,
+                "label": item.label,
+                "kind": item.kind,
+                "required": item.required,
+                "choices": [{"value": json_safe(value), "label": text} for value, text in item.choices],
+                "hint": item.hint,
+                "minimum": item.minimum,
+                "maximum": item.maximum,
+                "value": json_safe(typed.get(item.key, start[item.key])),
+            }
+            for item in shown.fields
+        ],
+    }
+    return answer
+
+
+def _settings_with_answers(spec, dataset: TameDataset, settings: dict[str, Any], answers: dict[str, Any] | None) -> dict[str, Any]:
+    """The options a plugin runs with once the answers to its declared questions are checked and put in.
+
+    Without answers the settings pass as they are, as in an unattended command-line run, and a required question left
+    unanswered stops the run by name. A question the answers leave out keeps its starting value; an answer sent empty
+    removes the option, so the plugin default applies.
+    """
+    from tametools import dialogs
+    questions = _plugin_questions(spec, dataset, settings)
+    if questions is None:
+        if answers:
+            raise ValueError(f"{spec.name} 플러그인은 질문을 선언하지 않았습니다. 설정은 pluginOptions 로 보내 주세요.")
+        return settings
+    made, shown, start = questions
+    if answers is None:
+        lacking = [item.key for item in dialogs.missing(made, settings)]
+        if lacking:
+            _typed, errors = dialogs.check_answers(shown, start)
+            raise PluginAnswersError({key: errors[key] for key in lacking})
+        return settings
+    asked = {item.key for item in made.fields}
+    unknown = [str(key) for key in answers if key not in asked]
+    if unknown:
+        raise ValueError(f"{spec.name} 플러그인이 묻지 않은 항목입니다: " + ", ".join(unknown))
+    typed, errors = dialogs.check_answers(shown, {**start, **answers})
+    if errors:
+        raise PluginAnswersError(errors)
+    return dialogs.merged(made, settings, typed)
+
+
+@web_operation('PLUGIN_RUN')
+def run_web_plugin_payload(payload: dict[str, Any], options: dict[str, Any], workspace: str | Path) -> dict[str, Any]:
+    plugin_name, plugin_options = _requested_plugin(options)
+    answers = options.get("answers")
+    if answers is not None and not isinstance(answers, dict):
+        raise ValueError("answers must be an object.")
+
+    if _runs_in_reference_panel(plugin_name):
         from .workbench_analysis import reference_analysis
         return reference_analysis(payload, plugin_options, workspace)
 
     dataset = dataset_from_payload(payload, standardize=False)
+    effective = _plugin_settings(dataset, plugin_name, plugin_options)
+    from tametools.plugin_base import get_plugin
+    if plugins_explicitly_allowed(options):
+        dataset = materialize_web_plugins(dataset, workspace)
+    spec = get_plugin(plugin_name, dataset.meta, allow_external=plugins_explicitly_allowed(options))
+    if spec is not None:
+        # Declared questions are answered in the browser before the run; the answers become options and are logged with them.
+        effective = _settings_with_answers(spec, dataset, effective, answers)
+    report_id = None
+    # Where files are written is this app's decision. A path typed into the request is refused; one carried by the
+    # opened file (META[plugin].OUTPUT_DIR / REPORT_PATH) is left out, so a file cannot choose where the server writes.
+    answered = [key for key, value in (answers or {}).items() if value not in (None, "")]
+    if spec and spec.reporting and workspace and any(str(k).upper() == 'OUTPUT_DIR' for k in (*plugin_options, *answered)):
+        raise ValueError('웹 보고서 저장 위치는 작업실에서 관리합니다. OUTPUT_DIR 설정을 제거해 주세요.')
+    if any(str(k).upper() == 'REPORT_PATH' for k in (*plugin_options, *answered)):
+        raise ValueError('웹 보고서 저장 위치는 작업실에서 관리합니다. REPORT_PATH 설정을 제거해 주세요.')
+    effective = {k:v for k,v in effective.items() if str(k).upper() not in WEB_MANAGED_PATH_KEYS}
+    if spec and spec.reporting and workspace:
+        import secrets
+        report_id = secrets.token_urlsafe(18)
+        folder = Path(workspace)/'analysis_reports'/report_id
+        effective['OUTPUT_DIR'] = str(folder)
+    plugin_options = effective
     output = run_plugin(dataset, plugin_name, dataset.meta, plugin_name, plugin_options)
     if output is None:
         if not plugins_explicitly_allowed(options) and configured_external_plugin(dataset.meta, plugin_name):
@@ -654,7 +839,63 @@ def run_web_plugin_payload(payload: dict[str, Any], options: dict[str, Any], wor
         warnings=list(output.warnings or []), operation_output=output,
     )
     asset_warnings = [f"file: {path}" for path in output.files or []]
-    return dataset_payload(result_dataset, filename=filename, warnings=[*(output.warnings or []), *asset_warnings])
+    response = dataset_payload(result_dataset, filename=filename, warnings=[*(output.warnings or []), *asset_warnings])
+    if plugins_explicitly_allowed(options):
+        response["pluginView"] = plugin_view_summary(result_dataset, allow_external=True)
+    if spec and spec.reporting:
+        from .workbench_analysis import attach_workflow_report
+        attach_workflow_report(response, output, report_id, workspace)
+    return response
+
+
+def _result_view_name(meta: dict | None) -> str:
+    """The plugin whose screen a result asks for: META[ANALYSIS_RESULT].VIEW, else .PLUGIN ('' when it names none)."""
+    declared = ci_get(meta, "ANALYSIS_RESULT", {}) if isinstance(meta, dict) else {}
+    if not isinstance(declared, dict):
+        return ""
+    name = ci_get(declared, "VIEW", None) or ci_get(declared, "PLUGIN", None)
+    return normalize_plugin_name(name) if isinstance(name, str) and name.strip() else ""
+
+
+def plugin_view_summary(dataset: TameDataset, *, allow_external: bool = False) -> dict[str, Any] | None:
+    """The screen a plugin registered for this result (``register_view``), looked up but not rendered.
+
+    Only screens of bundled and installed plugins are found, so that showing a file never reads code that came with
+    it. ``allow_external`` is for a result the person just ran with the file's plugins trusted: the screen of an
+    external plugin is then offered too, marked ``requiresTrust`` because opening it runs that plugin's code again.
+    """
+    from tametools.plugin_base.manager import plugin_view
+    if not _result_view_name(dataset.meta):
+        return None
+    spec = plugin_view(dataset, allow_external=allow_external)
+    if spec is None:
+        return None
+    trusted = not allow_external or plugin_view(dataset) is spec
+    return {"name": spec.name, "title": spec.title, "requiresTrust": not trusted}
+
+
+def plugin_view_payload(payload: dict[str, Any], options: dict[str, Any], workspace: str | Path) -> dict[str, Any]:
+    """The screen of this result, rendered by the plugin that registered it: ``html`` is one complete document.
+
+    The plugin's code runs here, under the rule of a plugin run: an external plugin's screen needs allowPlugins.
+    The document is the plugin's own; the page that shows it keeps it apart (a sandboxed frame in the workbench).
+    """
+    from tametools.plugin_base import get_plugin
+    from tametools.plugin_base.extensions import render_view
+    from tametools.plugin_base.manager import plugin_view
+    dataset = dataset_from_payload(payload, standardize=False)
+    allowed = plugins_explicitly_allowed(options)
+    if allowed:
+        dataset = materialize_web_plugins(dataset, workspace)
+    spec = plugin_view(dataset, allow_external=allowed)
+    if spec is None:
+        named = _result_view_name(dataset.meta)
+        if named and not allowed and get_plugin(named, dataset.meta) is None:
+            raise PermissionError(f"{named} 은(는) 외부 플러그인입니다. 그 화면은 파일을 신뢰한다고 확인한 뒤에 열 수 있습니다 (allowPlugins=true).")
+        raise ValueError("이 자료에 등록된 플러그인 화면이 없습니다" + (f" ({named} 은(는) 화면을 등록하지 않았습니다)." if named else
+                         " (플러그인 결과가 아닙니다: META[ANALYSIS_RESULT].PLUGIN 이 없습니다)."))
+    title, html = render_view(dataset)
+    return {"name": spec.name, "title": title, "html": html}
 
 
 @web_operation('META_ACTION')
@@ -723,12 +964,13 @@ def run_meta_analysis_payload(
 
     dataset = dataset_from_payload(payload, standardize=False)
     name, config = _resolve_analysis_config(dataset.meta, analysis_name)
-    plugin_name = str(ci_get(config, "PLUGIN", "CHEMISTRY_ANALYSIS")).strip() or "CHEMISTRY_ANALYSIS"
+    plugin_name = _analysis_plugin_name(config)
     plugin_options = ci_get(config, "OPTIONS", {})
     if not isinstance(plugin_options, dict):
         plugin_options = {}
     inline_options = {key: value for key, value in config.items() if key.upper() not in {"LABEL", "DESCRIPTION", "PLUGIN", "OPTIONS"}}
-    merged_options = {**inline_options, **plugin_options}
+    # A stored analysis comes from the opened file: it does not choose where this app writes.
+    merged_options = {key: value for key, value in {**inline_options, **plugin_options}.items() if str(key).upper() not in WEB_MANAGED_PATH_KEYS}
     output = run_plugin(dataset, plugin_name, dataset.meta, name, merged_options)
     if output is None:
         if not plugins_explicitly_allowed(options) and configured_external_plugin(dataset.meta, plugin_name):
@@ -758,7 +1000,10 @@ def run_meta_analysis_payload(
         parameters={"analysis": name, "plugin": plugin_name, "options": merged_options},
         warnings=list(output.warnings or []), operation_output=output,
     )
-    return dataset_payload(result_dataset, filename=filename, warnings=list(output.warnings or []))
+    response = dataset_payload(result_dataset, filename=filename, warnings=list(output.warnings or []))
+    if plugins_explicitly_allowed(options):
+        response["pluginView"] = plugin_view_summary(result_dataset, allow_external=True)
+    return response
 
 
 @web_operation('PRESET')
@@ -948,38 +1193,53 @@ def eda_result_dataset(source_dataset: TameDataset, *, tables: dict[str, pd.Data
     )
 
 
+def _web_plugin_specs(meta):
+    specs = list_plugins(meta)
+    seen = {plugin.name for plugin in specs}
+    # Catalogue entries describe embedded code; viewing/selecting never imports it.
+    for name, config in web_plugin_configs(meta).items():
+        name = normalize_plugin_name(name)
+        if name not in seen:
+            specs.append(PluginSpec(name, str(ci_get(config, "DESCRIPTION", "")), lambda *_: None))
+            seen.add(name)
+    return specs
+
+
 def plugin_payloads(meta: dict | None) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        plugins = list_plugins(meta)
-    except Exception as exc:
-        return [], [f"Plugin load failed: {exc}"]
-    warnings = external_plugin_warnings(meta)
+    plugins = _web_plugin_specs(meta)
+    state = plugin_selection_state(meta, plugins)
+    warnings = [*external_plugin_warnings(meta), *state['warnings']]
+    builtin = {plugin.name for plugin in list_plugins(meta)}
+    chosen = state['enabled']
     payloads = [
         {
             "name": plugin.name,
             "description": plugin.description,
+            "reporting": plugin.reporting,
             "roles": role_contract_payload(plugin.roles),
-            "external": False,
-            "requiresTrust": False,
+            "dependencies": list(plugin.dependencies),
+            "aliases": [item.name for item in plugins if item.handler is plugin.handler and item.name != plugin.name],
+            "external": plugin.name not in builtin,
+            "requiresTrust": plugin.name not in builtin,
+            "enabled": plugin.name in state['effective'],
+            "selected": chosen is None or plugin.name in chosen,
+            "available": True,
+            # Does it declare questions (register_plugin form=...)? Known here without reading any code; the browser
+            # asks /api/plugins/form for the form itself only when there is one.
+            "questions": "declared" if plugin.form is not None else "none",
+            # What the plugin declared about hosts: a screen it is run through (this workbench has "reference_interval"),
+            # and the plugin to use instead of it. The browser decides by these, never by a plugin's name.
+            "panel": plugin.panel,
+            "supersededBy": plugin.superseded_by,
         }
         for plugin in plugins
     ]
     seen = {item["name"] for item in payloads}
-    for plugin_name, config in web_plugin_configs(meta).items():
-        normalized = normalize_plugin_name(str(plugin_name))
-        if normalized in seen:
-            continue
-        description = str(ci_get(config, "DESCRIPTION", "")) if isinstance(config, dict) else ""
-        payloads.append(
-            {
-                "name": normalized,
-                "description": description,
-                "roles": [],
-                "external": True,
-                "requiresTrust": True,
-            }
-        )
-        seen.add(normalized)
+    for name in chosen or []:
+        if name not in seen:
+            payloads.append(dict(name=name, description='설치 또는 외부 모듈의 신뢰 확인이 필요합니다.',
+                reporting=False, roles=[], dependencies=[], aliases=[], external=True, requiresTrust=True,
+                enabled=True, selected=True, available=False, questions="unknown", panel="", supersededBy=""))    # in external code, not read before trust
     return payloads, warnings
 
 
@@ -987,21 +1247,30 @@ def analysis_payloads(meta: dict | None) -> list[dict[str, Any]]:
     section = ci_get(meta, "ANALYSES", {})
     if not isinstance(section, dict):
         return []
+    from .workbench_analysis import REFERENCE_PANEL, reference_plugin_names
     builtin_plugins = {plugin.name for plugin in list_plugins(None)}
     external_modules = configured_plugin_modules(meta)
     web_plugin_names = {normalize_plugin_name(name) for name in web_plugin_configs(meta)}
+    allowed = set(plugin_selection_state(meta, _web_plugin_specs(meta))['effective'])
+    restricted = selected_plugin_names(meta) is not None
+    # An analysis of the plugin that declared the reference-interval screen, or of an older plugin it replaces, is
+    # set up in that screen instead of being run as saved.
+    in_reference_panel = set(reference_plugin_names(superseded=True))
     analyses: list[dict[str, Any]] = []
     for name, config in section.items():
         if not isinstance(config, dict):
             continue
-        plugin_name = str(ci_get(config, "PLUGIN", "CHEMISTRY_ANALYSIS")).strip() or "CHEMISTRY_ANALYSIS"
+        plugin_name = _analysis_plugin_name(config)
         normalized_plugin = normalize_plugin_name(plugin_name)
+        if restricted and normalized_plugin not in allowed:
+            continue
         analyses.append(
             {
                 "name": str(name),
                 "label": str(ci_get(config, "LABEL", name)),
                 "description": str(ci_get(config, "DESCRIPTION", "")),
                 "plugin": plugin_name,
+                "panel": REFERENCE_PANEL if plugin_name in in_reference_panel else "",
                 "options": ci_get(config, "OPTIONS", {}) if isinstance(ci_get(config, "OPTIONS", {}), dict) else {},
                 "mutates": True,
                 "requiresTrust": normalized_plugin in web_plugin_names
@@ -1044,6 +1313,10 @@ def plugins_explicitly_allowed(options: dict[str, Any]) -> bool:
     )
 
 
+def _analysis_plugin_name(config: dict) -> str:
+    return str(ci_get(config, "PLUGIN", LEGACY_ANALYSIS_PLUGIN)).strip() or LEGACY_ANALYSIS_PLUGIN
+
+
 def _resolve_analysis_config(meta: dict | None, analysis_name: str) -> tuple[str, dict[str, Any]]:
     section = ci_get(meta, "ANALYSES", {})
     if not isinstance(section, dict):
@@ -1069,7 +1342,7 @@ def chart_payloads(dataset: TameDataset) -> list[dict[str, Any]]:
         y_col = str(ci_get(config, "Y", "")).strip()
         series_col = str(ci_get(config, "SERIES", ci_get(config, "COLOR", ""))).strip()
         embedded = ci_get(config, 'ROWS', None)
-        frame = pd.DataFrame(embedded) if isinstance(embedded, list) else dataset.df
+        frame = pd.DataFrame(embedded, columns=ci_get(config, "ROW_COLUMNS", None)) if isinstance(embedded, list) else dataset.df
         if not x_col or not y_col or x_col not in frame.columns or y_col not in frame.columns:
             continue
         max_points = int(ci_get(config, "MAX_POINTS", 80))
@@ -1084,7 +1357,7 @@ def chart_payloads(dataset: TameDataset) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for record in frame.to_dict(orient="records"):
             y_value = _chart_number(record.get(y_col))
-            if y_value is None:
+            if y_value is None and str(ci_get(config, "TYPE", "")).upper() != "LINE":
                 continue
             rows.append(
                 {
@@ -1101,6 +1374,7 @@ def chart_payloads(dataset: TameDataset) -> list[dict[str, Any]]:
                 "name": str(name),
                 "type": str(ci_get(config, "TYPE", "BAR")).strip().lower() or "bar",
                 "title": str(ci_get(config, "TITLE", name)),
+                "referenceLines": json_safe(ci_get(config,"REFERENCE_LINES",[])),
                 "x": x_col,
                 "y": y_col,
                 "series": series_col,
@@ -1169,9 +1443,20 @@ def write_web_plugin_module(
     module_path = package_dir / f"{resolved_module.rsplit('.', 1)[-1]}.py"
     module_path.write_text(_web_plugin_module_source(normalized_name, description, source), encoding="utf-8")
 
-    sys.modules.pop(resolved_module, None)
+    # The package name is shared, but different files/workspaces may materialize
+    # different modules. Import the exact file, not a cached package search path.
     importlib.invalidate_caches()
-    importlib.import_module(resolved_module)
+    module_spec = importlib.util.spec_from_file_location(resolved_module, module_path)
+    if module_spec is None:
+        raise ImportError(f"Cannot load web plugin: {resolved_module}")
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[resolved_module] = module
+    try:
+        # Compile current source to avoid stale bytecode after rapid same-size edits.
+        exec(compile(module_path.read_text(encoding="utf-8"), str(module_path), "exec"), module.__dict__)
+    except Exception:
+        sys.modules.pop(resolved_module, None)
+        raise
     return resolved_module
 
 

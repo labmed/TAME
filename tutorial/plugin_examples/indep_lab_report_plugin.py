@@ -1,10 +1,10 @@
-"""독립 검증용 보고서 플러그인 (회귀 테스트 자산).
+"""독립 검증용 보고서 플러그인 예제.
 
-발주사 측이 PLUGIN_AUTHOR_GUIDE 문서만 보고 작성한 제3자 검증 예제다. 수행사 예제
+PLUGIN_AUTHOR_GUIDE 문서만 보고 따로 작성한 독립 검증 예제다. 기본 예제
 (`combined_report_plugin.COMBINED_CHEMISTRY_REPORT`, RI+CHEMISTRY)와 의도적으로 다른 조합을
 써서, 플러그인 확장 계약이 데모용 특수처리가 아니라 범용으로 동작하는지 고정한다.
 
-수행사 예제와 다른 점:
+기본 예제와 다른 점:
 - 재사용 플러그인 3종: QC_ANALYSIS(PRECISION) + ABNORMAL_FLAG(RATE) + RESULT_TREND(D)
 - 차트 타입 혼합: BAR 2개 + LINE 1개 (BAR 일변도가 아님)
 - role helper(result_binding / RESULT_ROLE) 사용
@@ -20,17 +20,15 @@ import tempfile
 
 import pandas as pd
 
-from tametools.models import OperationOutput, TameDataset
-from tametools.plugin_base import run_plugin
-from tametools.plugin_base.base import register_plugin
-from tametools.plugin_base.roles import RESULT_ROLE, result_binding
-from tametools.reporting import chart_spec, with_visualizations, write_docx_report
+from tametools.plugin_api import (RESULT_ROLE, OperationOutput, TameDataset, chart_spec, register_plugin, result_binding,
+                                  run_plugin, with_visualizations, write_docx_report)
 
 
 @register_plugin(
     "INDEP_LAB_REPORT",
     description="독립 검증: QC + 이상률 + 추세를 재사용해 차트 포함 docx 보고서를 만든다.",
     roles=(RESULT_ROLE,),
+    dependencies=("QC_ANALYSIS", "ABNORMAL_FLAG", "RESULT_TREND"),
 )
 def indep_lab_report_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
     bound = result_binding(dataset, options)          # role helper (컬럼명 비의존)

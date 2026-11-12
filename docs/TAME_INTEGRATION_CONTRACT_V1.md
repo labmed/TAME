@@ -8,8 +8,8 @@ are now supported within the stricter scope in
 [the current analysis safety contract, section 8](TAME_ANALYSIS_SAFETY_V1.md).
 The older limitations below describe version 1, not the full 0.3.0 feature set.
 
-Status: optional local reference-implementation extension, 2026-09-11.
-This does not change the TSV/TOML container grammar or imply a public MSI release.
+Status: optional extension of the reference implementation.
+This does not change the TSV/TOML container grammar.
 
 ## Purpose and Boundary
 

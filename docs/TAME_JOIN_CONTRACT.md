@@ -1,6 +1,6 @@
 # Key-Based JOIN Checks
 
-2026-09-11. Optional ACTION fields extend the existing `JOIN` operation, without
+Optional ACTION fields extend the existing `JOIN` operation, without
 changing the TAME container version or adding an NHANES-specific command.
 
 ```toml

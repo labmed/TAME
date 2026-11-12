@@ -12,14 +12,17 @@ scipy is imported lazily; if absent, p-values degrade to NaN with a warning.
 """
 from __future__ import annotations
 
+from copy import deepcopy
+import math
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from tametools.analysis import numeric_series_for
+from tametools.analysis_contract import resolve_selector
 from tametools.config import ci_get
-from tametools.cellstate import NULL, STATE_VALUE, cell_state
+from tametools.cellstate import NULL, STATE_VALUE, STATE_EMPTY, STATE_WS, cell_state
 from tametools.models import ColumnSpec, OperationOutput, TameDataset, merged_column_specs
 from tametools.reporting import chart_spec, with_visualizations
 from tametools.plugin_base.base import register_plugin
@@ -41,21 +44,7 @@ def _first(dataset: TameDataset, *tags: str, names: tuple[str, ...] = ()) -> Col
 
 
 def _resolve(dataset: TameDataset, name: str) -> ColumnSpec | None:
-    text = str(name or "").strip()
-    if not text:
-        return None
-    if text.lower().startswith("tag:"):
-        columns = dataset.columns_with_tag(text.split(":", 1)[1])
-        if len(columns) != 1:
-            raise ValueError(f"Unknown or ambiguous column selector: {text}")
-        return columns[0]
-    if text.lower().startswith("id:"):
-        from tametools.analysis_contract import resolve_id
-        return resolve_id(dataset, text[3:])
-    for column in dataset.columns:
-        if column.name == text:
-            return column
-    raise ValueError(f"Unknown column selector: {text}")
+    return resolve_selector(dataset, name)
 
 
 def _string_list(value: Any) -> list[str]:
@@ -80,8 +69,19 @@ def _result_output(table: pd.DataFrame, step_name: str, plugin: str, mode: str, 
     columns = merged_column_specs([_header(name) for name in (safe.columns if not safe.empty else [])])
     if not safe.empty:
         safe.columns = [column.name for column in columns]
+        typed = []
+        for column in columns:
+            states = safe[column.name].map(cell_state)
+            tags = list(column.tags)
+            for tag, needed in [('NULLABLE', True), ('EMPTY_OK', states.eq(STATE_EMPTY).any()), ('WS_OK', states.eq(STATE_WS).any())]:
+                if needed and tag not in tags:
+                    tags.append(tag)
+            typed.append(ColumnSpec(f"[[{'::'.join(tags)}]]{column.name}", column.name, tuple(tags)))
+        columns = typed
     meta = {
         "INFO": {"DESCRIPTION": f"{plugin} output: {mode}"},
+        "COLUMN": {column.name: {"ID": column.name} for column in columns},
+        "ANALYSIS_RESULT": {"PLUGIN": plugin, "MODE": mode},
         "SETTINGS": {"VALIDATE_ERROR": "REPORT"},
         "WORKS": {"DEFAULT": ["DESCRIBE"]},
         "PLUGIN": {"NAME": plugin, "MODE": mode, "WARNINGS": warnings, "OPTIONS": dict(options or {})},
@@ -108,22 +108,39 @@ def _charts_for(plugin: str, mode: str, table: pd.DataFrame) -> list[dict[str, A
     if plugin == "CORRELATION" and {"item_x", "r"} <= columns:
         return [chart_spec("CORRELATION_R", type="bar", title="Correlation coefficient", x="item_x", y="r")]
     if plugin == "QC_ANALYSIS":
-        if mode in {"LEVEY_JENNINGS", "WESTGARD"} and {"point", "z"} <= columns:
-            return [chart_spec("LEVEY_JENNINGS_Z", type="line", title="Levey-Jennings z-score", x="point", y="z", series="level" if "level" in columns else "")]
+        if mode == "WESTGARD" and {"time", "z", "series"} <= columns:
+            charts = []
+            for identifier in table.result_id.unique():
+                chart = chart_spec("LEVEY_JENNINGS_Z_"+str(identifier), type="line", title=str(identifier)+": QC against declared baselines", x="time", y="z", series="series",
+                    max_points=2000, reference_lines=[{"VALUE":v, "LABEL":str(v)+" SD"} for v in [-3,-2,0,2,3]])
+                chart["FILTER"] = {"result_id": identifier}
+                charts.append(chart)
+            return charts
+        if mode == "LEVEY_JENNINGS" and {"point", "z"} <= columns:
+            return [chart_spec("LEVEY_JENNINGS_Z", type="line", title="Levey-Jennings z-score", x="point", y="z", series="group" if "group" in columns else "level" if "level" in columns else "")]
         if {"level", "cv_percent"} <= columns:
-            return [chart_spec("QC_CV_PERCENT", type="bar", title="QC CV%", x="level", y="cv_percent")]
+            return [chart_spec("QC_CV_PERCENT", type="bar", title="QC CV%", x="group" if "group" in columns else "level", y="cv_percent")]
     if plugin == "ROC_ANALYSIS":
         if {"specificity", "sensitivity"} <= columns and mode == "CURVE":
             return [chart_spec("ROC_CURVE", type="line", title="ROC curve", x="specificity", y="sensitivity", series="score" if "score" in columns else "")]
         if {"score", "auc"} <= columns:
             return [chart_spec("ROC_AUC", type="bar", title="ROC AUC", x="score", y="auc")]
     if plugin == "RESULT_TREND" and {"period", "mean"} <= columns:
-        return [chart_spec("RESULT_TREND_MEAN", type="line", title="Result trend mean", x="period", y="mean", series="test" if "test" in columns else "")]
+        chart = chart_spec("RESULT_TREND_MEAN", type="line", title="Result trend mean", x="period", y="mean", series="test" if "test" in columns else "")
+        if "group_result_id" in columns:
+            charts = []
+            for identifier in table.group_result_id.unique():
+                item = deepcopy(chart)
+                item.update(name="RESULT_TREND_MEAN_"+str(identifier), TITLE=str(identifier)+": result trend mean", MAX_POINTS=2000,
+                            FILTER={"group_result_id":identifier})
+                charts.append(item)
+            return charts
+        return [chart]
     return []
 
 
 _NUMERIC_NAMES = {
-    "n", "n_a", "n_b", "n1", "n2", "count", "r", "slope", "intercept", "bias", "mean", "median",
+    "input_n", "missing_n", "n", "n_a", "n_b", "n1", "n2", "count", "r", "slope", "intercept", "bias", "mean", "median",
     "sd", "cv_percent", "lower_loa", "upper_loa", "statistic", "p_value", "z", "sigma",
     "moving_avg", "value", "mean_a", "mean_b", "effect_size", "df",
     "auc", "best_cutoff", "sensitivity", "specificity", "youden", "n_pos", "n_neg", "threshold",
@@ -206,50 +223,6 @@ def method_comparison_plugin(dataset: TameDataset, meta: dict, step_name: str, o
 
     table, warnings = compare_methods(dataset, options, result_columns, method_col, test_col, keys)
     return _result_output(table, step_name, "METHOD_COMPARISON", "REGRESSION", options, warnings)
-
-
-def _passing_bablok(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-    n = len(x)
-    slopes: list[float] = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            dx = x[j] - x[i]
-            dy = y[j] - y[i]
-            if dx == 0:
-                continue
-            s = dy / dx
-            if s == -1:
-                continue
-            slopes.append(s)
-    if not slopes:
-        return float("nan"), float("nan")
-    slopes_sorted = sorted(slopes)
-    # Shift offset K = number of slopes < -1 (Passing-Bablok correction).
-    k = sum(1 for s in slopes_sorted if s < -1)
-    m = len(slopes_sorted)
-    idx = (m + 1) / 2 + k
-    if m % 2 == 1:
-        slope = slopes_sorted[int((m + 1) / 2 - 1 + k)] if 0 <= int((m + 1) / 2 - 1 + k) < m else float(np.median(slopes_sorted))
-    else:
-        lo = int(m / 2 - 1 + k); hi = int(m / 2 + k)
-        if 0 <= lo < m and 0 <= hi < m:
-            slope = (slopes_sorted[lo] + slopes_sorted[hi]) / 2
-        else:
-            slope = float(np.median(slopes_sorted))
-    intercept = float(np.median(y - slope * x))
-    return float(slope), intercept
-
-
-def _deming(x: np.ndarray, y: np.ndarray, lam: float = 1.0) -> tuple[float, float]:
-    mx, my = float(np.mean(x)), float(np.mean(y))
-    sxx = float(np.sum((x - mx) ** 2))
-    syy = float(np.sum((y - my) ** 2))
-    sxy = float(np.sum((x - mx) * (y - my)))
-    if sxy == 0:
-        return float("nan"), float("nan")
-    slope = (syy - lam * sxx + np.sqrt((syy - lam * sxx) ** 2 + 4 * lam * sxy ** 2)) / (2 * sxy)
-    intercept = my - slope * mx
-    return float(slope), float(intercept)
 
 
 def _default_keys(dataset: TameDataset) -> list[str]:
@@ -401,14 +374,15 @@ def qc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, options
     mode = str(ci_get(options, "MODE", "PRECISION")).strip().upper()
     bound_results = result_binding(dataset, options)
     result_columns = list(bound_results.columns)
-    level_col = _resolve(dataset, str(ci_get(options, "LEVEL", ""))) or _first(dataset, "ITEM", "TESTNAME", "QC_LEVEL")
 
     warnings: list[str] = []
     if not result_columns:
         warnings.append("Missing RESULT/NUM column.")
         return _result_output(pd.DataFrame(), step_name, "QC_ANALYSIS", mode, options, warnings)
 
-    tea_map = ci_get(options, "TEA", {})  # allowable total error % per level (optional)
+    # Allowable total error and bias, both in percent: one number, {level: x} or {result id: {level: x}}.
+    tea_map = ci_get(options, "TEA", None)
+    bias_map = ci_get(options, "BIAS", None)
     include_source = len(result_columns) > 1
 
     if mode == "WESTGARD":
@@ -417,44 +391,52 @@ def qc_analysis_plugin(dataset: TameDataset, meta: dict, step_name: str, options
         return _result_output(table, step_name, "QC_ANALYSIS", mode, options,
             ["Basic 1_3s, 2_2s and within-run R_4s against declared baselines; not a validated operational release system."])
 
-    if mode in {"PRECISION", "SIGMA"}:
-        rows: list[dict[str, Any]] = []
-        for result in result_columns:
-            values = numeric_series_for(dataset, result, crr_policy=comparator_policy)
-            groups = dataset.df[level_col.name].astype(str).values if level_col is not None else np.array([result.name] * len(values))
-            work = pd.DataFrame({"_value": values.values, "_level": groups}).dropna(subset=["_value"])
-            for level, group in work.groupby("_level", observed=False):
-                v = group["_value"].to_numpy(dtype=float)
-                mean = float(np.mean(v)); sd = float(np.std(v, ddof=1)) if len(v) > 1 else 0.0
-                cv = 100.0 * sd / mean if mean else float("nan")
-                row = {**result_source_record(result, include=include_source),
-                       "level": level, "n": len(v), "mean": round(mean, 4), "sd": round(sd, 4),
-                       "cv_percent": round(cv, 3) if cv == cv else float("nan")}
-                tea = _lookup_number(tea_map, level)
-                if tea is not None and cv:
-                    bias = abs(_lookup_number(ci_get(options, "BIAS", {}), level) or 0.0)
-                    row["sigma"] = round((tea - bias) / cv, 2)
-                rows.append(row)
-        return _result_output(pd.DataFrame(rows), step_name, "QC_ANALYSIS", mode, options, warnings)
-
-    if mode == "LEVEY_JENNINGS":
-        warnings.append("Retrospective mean/SD estimated from these observations; not fixed-baseline operational QC.")
+    if mode in {"PRECISION", "SIGMA", "LEVEY_JENNINGS"}:
+        from tametools.quality_control import qc_context
         rows = []
         for result in result_columns:
-            values = numeric_series_for(dataset, result, crr_policy=comparator_policy)
-            groups = dataset.df[level_col.name].astype(str).values if level_col is not None else np.array([result.name] * len(values))
-            work = pd.DataFrame({"_value": values.values, "_level": groups}).dropna(subset=["_value"])
-            for level, group in work.groupby("_level", observed=False):
-                v = group["_value"].to_numpy(dtype=float)
-                mean = float(np.mean(v)); sd = float(np.std(v, ddof=1)) if len(v) > 1 else 0.0
-                z = (v - mean) / sd if sd else np.zeros_like(v)
-                for index, (value, zz) in enumerate(zip(v, z), start=1):
-                    violations = []
-                    rows.append({**result_source_record(result, include=include_source),
-                                 "level": level, "point": index, "value": round(float(value), 4),
-                                 "mean": round(mean, 4), "sd": round(sd, 4), "z": round(float(zz), 3),
-                                 "violation": ", ".join(violations) if violations else "NONE"})
-        return _result_output(pd.DataFrame(rows), step_name, "QC_ANALYSIS", mode, options, warnings)
+            work, bindings = qc_context(dataset, result, options)
+            work["_value"] = numeric_series_for(dataset, result, crr_policy=comparator_policy)
+            if not bindings['level']:
+                warnings.append("QC level is not declared; summaries describe the supplied result groups.")
+            for keys, raw in work.groupby(["result_id", "test", "level", "lot", "instrument"], sort=True, dropna=False):
+                identity = dict(zip(["result_id", "test", "level", "lot", "instrument"], keys))
+                v = raw['_value'].dropna().to_numpy(dtype=float)
+                mean = float(np.mean(v)) if len(v) else float('nan')
+                sd = float(np.std(v, ddof=1)) if len(v) > 1 else float('nan')
+                cv = 100 * sd / abs(mean) if mean else float('nan')
+                label = " / ".join(str(value) for value in keys if str(value))
+                common = {**result_source_record(result, include=include_source), **identity,
+                    "group":label, "n":len(v), "input_n":len(raw), "missing_n":len(raw)-len(v),
+                    "status":"evaluated" if len(v)>1 else "insufficient_n" if len(v) else "no_numeric_results"}
+                if len(v)<2:
+                    warnings.append("SD and CV require at least two observations: " + label)
+                if mode == "LEVEY_JENNINGS":
+                    z = (v-mean)/sd if np.isfinite(sd) and sd>0 else np.full_like(v, np.nan)
+                    for index, (value, zz) in enumerate(zip(v, z), 1):
+                        rows.append({**common,"point":index,"value":float(value),"mean":mean,"sd":sd,"z":float(zz),"violation":"NOT_APPLIED"})
+                else:
+                    row = {**common,"mean":round(mean,4),"sd":round(sd,4),"cv_percent":round(cv,3)}
+                    if mode == "SIGMA" or tea_map is not None:
+                        # Sigma = (TEa - |bias|) / CV. A bias that was not given is not a bias of zero:
+                        # without it there is no sigma, and the row says which input is missing.
+                        tea = _declared_percent(tea_map, identity['result_id'], identity['level'], "TEA")
+                        bias = _declared_percent(bias_map, identity['result_id'], identity['level'], "BIAS")
+                        missing = "tea_missing" if tea is None else "bias_missing" if bias is None else \
+                            "cv_unavailable" if not (np.isfinite(cv) and cv > 0) else ""
+                        row.update(tea_percent=tea if tea is not None else float('nan'),
+                                   bias_percent=bias if bias is not None else float('nan'),
+                                   sigma=float('nan') if missing else round((tea - abs(bias)) / cv, 2),
+                                   sigma_status=missing or "evaluated")
+                        if missing in {"tea_missing", "bias_missing"}:
+                            name = "TEA" if missing == "tea_missing" else "BIAS"
+                            warnings.append(f"Sigma not calculated for {label}: no {name} is declared for it. "
+                                + ("Declare BIAS in percent; write 0 only when the bias was measured as zero."
+                                   if name == "BIAS" else "Declare TEA (allowable total error) in percent."))
+                    rows.append(row)
+        if mode == "LEVEY_JENNINGS":
+            warnings.append("Retrospective mean/SD estimated from these observations; not fixed-baseline operational QC.")
+        return _result_output(pd.DataFrame(rows), step_name, "QC_ANALYSIS", mode, options, list(dict.fromkeys(warnings)))
 
     raise ValueError(f"Unsupported QC mode: {mode}")
 
@@ -474,15 +456,43 @@ def _westgard_flags(z: np.ndarray, i: int, *, same_run: bool = False) -> list[st
     return flags
 
 
-def _lookup_number(mapping: Any, key: str) -> float | None:
-    if isinstance(mapping, dict):
-        for mk, mv in mapping.items():
-            if str(mk) == str(key):
-                try:
-                    return float(mv)
-                except (TypeError, ValueError):
-                    return None
-    return None
+def _declared_percent(declared: Any, result_id: str, level: str, name: str) -> float | None:
+    """The percentage declared for one analyte and level; None when nothing is declared for it.
+
+    ``declared`` is one number for everything, ``{level: x}``, or ``{result id: {level: x}}``
+    (``{result id: x}`` for every level of that analyte). A value that is not a number is an error.
+    """
+    def number(value: Any, where: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(f"{name}{where} must be a number in percent")
+        try:
+            parsed = float(value)
+        except ValueError:
+            raise ValueError(f"{name}{where} must be a number in percent, got {value!r}") from None
+        if not math.isfinite(parsed) or (name == "TEA" and parsed <= 0):
+            raise ValueError(f"{name}{where} must be a finite number in percent" + (" above 0" if name == "TEA" else ""))
+        return parsed
+
+    def find(mapping: dict, key: str) -> tuple[bool, Any]:
+        for candidate, value in mapping.items():
+            if str(candidate) == str(key):
+                return True, value
+        return False, None
+
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        return number(declared, "")
+    found, value = find(declared, result_id)
+    if found:
+        if not isinstance(value, dict):
+            return number(value, f".{result_id}")
+        found, inner = find(value, level)
+        return number(inner, f".{result_id}.{level}") if found else None
+    found, value = find(declared, level)
+    if found and isinstance(value, dict):
+        raise ValueError(f"{name}.{level} must be a number in percent; use {name}.<result id>.<level> to set it per analyte")
+    return number(value, f".{level}") if found else None
 
 
 # --------------------------------------------------------------------------- ROC_ANALYSIS
@@ -622,6 +632,13 @@ def result_trend_plugin(dataset: TameDataset, meta: dict, step_name: str, option
     test_col = _first(dataset, "ITEM", "TESTNAME")
     period = str(ci_get(options, "PERIOD", "M")).strip().upper()  # D/W/M/Q/Y
     window = int(ci_get(options, "WINDOW", 3))
+    if window < 1:
+        raise ValueError("WINDOW must be positive")
+    group_ids = ci_get(options, "GROUP_BY_IDS", [])
+    if not isinstance(group_ids, list) or len(set(group_ids)) != len(group_ids):
+        raise ValueError("GROUP_BY_IDS must be a distinct list")
+    from tametools.analysis_contract import resolve_id
+    group_columns = [resolve_id(dataset, identifier).name for identifier in group_ids]
 
     warnings: list[str] = []
     if not result_columns:
@@ -642,12 +659,23 @@ def result_trend_plugin(dataset: TameDataset, meta: dict, step_name: str, option
         if work.empty:
             continue
 
+        for index, column in enumerate(group_columns):
+            work[f"_group_{index}"] = dataset.df[column].reset_index(drop=True).loc[work.index]
         work["_period"] = work["_date"].dt.to_period(period).dt.start_time
-        for test_name, group in work.groupby("_test", observed=False):
+        group_keys = ["_test", *[f"_group_{i}" for i in range(len(group_columns))]]
+        labels_seen = set()
+        for group_number, (keys, group) in enumerate(work.groupby(group_keys, observed=False, dropna=False), 1):
+            keys = keys if isinstance(keys, tuple) else (keys,)
+            identity = {"group_"+identifier: value for identifier, value in zip(group_ids, keys[1:])}
+            label = " / ".join(str(value) for key,value in identity.items() if key != 'group_baseline_key')
+            test_name = str(keys[0]) + (" / "+label if label else "")
+            if test_name in labels_seen:
+                test_name += f" [group {group_number}]"
+            labels_seen.add(test_name)
             agg = group.groupby("_period", observed=False)["_value"].agg(["count", "mean", "median"]).reset_index().sort_values("_period")
             agg["moving_avg"] = agg["mean"].rolling(window=window, min_periods=1).mean()
             for _, r in agg.iterrows():
-                rows.append({**result_source_record(result, include=include_source),
+                rows.append({**result_source_record(result, include=include_source), **identity,
                              "test": test_name, "period": r["_period"].strftime("%Y-%m-%d"),
                              "count": int(r["count"]), "mean": round(float(r["mean"]), 4),
                              "median": round(float(r["median"]), 4), "moving_avg": round(float(r["moving_avg"]), 4)})

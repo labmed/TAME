@@ -10,7 +10,7 @@ __pycache__/
 .wix311/
 node_modules/
 .svelte-kit/
-# Local build products: upload dist/0.4.0 files as GitHub Release assets.
+# Local build products: upload the files of dist/<version> as GitHub Release assets.
 /dist/
 /build/
 /tametools/build/
@@ -29,10 +29,3 @@ node_modules/
 .env
 .env.*
 !.env.example
-# Internal work is never part of the application release.
-/revision/
-/LMO_submit*/
-/public_dataset/
-/.agents/
-/.claude/
-/.codex/

@@ -269,14 +269,14 @@ class ClinicalTests(unittest.TestCase):
             write_tame(source, fixture())
             env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(Path(__file__).resolve().parents[1] / "src"), os.environ.get("PYTHONPATH", "")]))
             command = [sys.executable, "-m", "tametools", "analyze", str(source), "--output-dir", str(root / "report"), "--docx"]
-            run = subprocess.run(command, env=env, capture_output=True, text=True)
+            run = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(run.returncode, 0, run.stderr + run.stdout)
             self.assertTrue((root / "report/analysis_report.docx").exists())
             manifest = json.loads((root / "report/manifest.json").read_text())
             self.assertEqual(manifest["input_rows"], 8)
             self.assertIn("planned_analysis.py", manifest["source_modules_sha256"])
             self.assertFalse((root / "report/dataset.csv").exists())
-            run = subprocess.run(command, env=env, capture_output=True, text=True)
+            run = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertNotEqual(run.returncode, 0)
             options = deepcopy(fixture().meta["ANALYSIS_PLAN"])
             options["PRIMARY_POLICY"] = "DELETE"
@@ -284,14 +284,14 @@ class ClinicalTests(unittest.TestCase):
             plan.write_text(dumps_toml(options), encoding="utf-8")
             command = [sys.executable, "-m", "tametools", "analyze", str(source), "--plan", str(plan),
                        "--output-dir", str(root / "reviewed")]
-            run = subprocess.run(command, env=env, capture_output=True, text=True)
+            run = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(run.returncode, 0, run.stderr + run.stdout)
             manifest = json.loads((root / "reviewed/manifest.json").read_text())
             self.assertEqual(manifest["plan"], options)
             self.assertEqual(read_tame(source).meta["ANALYSIS_PLAN"]["PRIMARY_POLICY"], "RELEASED")
             plan.write_text('VERSION = "invalid"\n', encoding="utf-8")
             command[-1] = str(root / "invalid")
-            run = subprocess.run(command, env=env, capture_output=True, text=True)
+            run = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertNotEqual(run.returncode, 0)
             self.assertFalse((root / "invalid").exists())
 

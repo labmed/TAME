@@ -243,6 +243,37 @@ def record_effective_parameters(values):
     return context is not None
 
 
+def current_operation():
+    """The operation being recorded now, or None."""
+    return _OPERATION.get()
+
+
+def record_plugin_call(implementation, options, *, within=None):
+    """Note which plugin code ran in the operation being recorded; returns that operation (None when nothing is recorded).
+
+    ``within`` is the operation in which the calling plugin was noted. A plugin that another plugin runs inside that
+    same operation is added to ``PLUGIN_CALLS`` (the same call made again is counted, not repeated), so the caller's
+    own ``PLUGIN_IMPLEMENTATION`` stays what it was. A plugin that runs in an operation of its own (a workflow step,
+    a work step) is that operation's ``PLUGIN_IMPLEMENTATION``.
+    """
+    context = _OPERATION.get()
+    if context is None:
+        return None
+    if within is not None and within is context:
+        call = deepcopy({**implementation, 'OPTIONS': options})
+        calls = context.effective.setdefault('PLUGIN_CALLS', [])
+        for earlier in calls:
+            if {key: value for key, value in earlier.items() if key != 'COUNT'} == call:
+                earlier['COUNT'] = int(earlier.get('COUNT', 1)) + 1
+                break
+        else:
+            calls.append(call)
+    else:
+        context.effective.update(deepcopy({'PLUGIN_IMPLEMENTATION': implementation, 'PLUGIN_REQUESTED_OPTIONS': options}))
+        context.effective.pop('PLUGIN_CALLS', None)      # calls noted for an earlier plugin of this operation are not this one's
+    return context
+
+
 def append_log_entry(dataset: TameDataset, *, action: str, message: str = '', parent: str = '', output: str = '',
                      parameters=None, warnings=None, actor='tametools', input_dataset=None, inputs=None,
                      status='SUCCEEDED', counts=None, effective_parameters=None, operation_output=None, error=None):

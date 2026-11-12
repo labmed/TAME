@@ -91,6 +91,11 @@ TAGS = ["LABEL", "CATEGORY"]
 [PLUGINS]
 MODULES = ["tutorial.plugin_examples.combined_report_plugin"]
 
+# This long-format example mixes tests with different units and declares none for the reference limits.
+# ABNORMAL_FLAG then needs to be told so; its output says that unit compatibility was not verified.
+[ABNORMAL_FLAG]
+ALLOW_UNDECLARED_UNITS = true
+
 [ACTIONS.DEDUP_SAMPLE_ITEM]
 TYPE = "DEDUP"
 LABEL = "중복 검체-항목 제거"

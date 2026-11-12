@@ -1,6 +1,6 @@
 # Extensive Validation Scenario Set
 
-이 디렉터리는 검증 부족 지적에 대응하기 위한 저장형 예시 세트다. 각 scenario는
+이 디렉터리는 입력 검증과 처리 동작을 scenario 단위로 보여 주는 저장형 예시 세트다. 각 scenario는
 `scenario_matrix.py` 안에 목적, 입력 TAME, 실행 작업, 기대 조건을 함께 가진다.
 현재 187개 scenario를 제공하며, unittest에서는 scenario별 독립 테스트 187개와
 수량 확인 테스트 1개로 실행된다.

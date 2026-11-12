@@ -105,11 +105,13 @@ GROUP_LEVELS = (
     "REFERENCE_INTERVAL",
     description="Compute clinical reference intervals with reliability summary, charts, and optional docx report.",
     roles=(RESULT_ROLE,),
+    superseded_by="RI_EP28",        # kept for older files; hosts mark it and offer the EP28 plugin for new work
 )
 @register_plugin(
     "RI",
     description="Alias of the reference interval plugin.",
     roles=(RESULT_ROLE,),
+    superseded_by="RI_EP28",
 )
 def reference_interval_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
     ri_options = _parse_options(dataset, options)
@@ -551,6 +553,10 @@ def _summarize_group_level(
                 warning_rows.append(ci_adequacy_warning)
         unit = _unit_for_test(dataset, result_column, test_name)
         verify_fields = _verify_fields(values, test_name, options)
+        if verify_fields["verify_pass"] == "insufficient_n":
+            warning_rows.append(
+                f"No verification verdict for partition={partition!r} group_level={level.name}: n={n} is below {VERIFY_MIN_N}. "
+                "The share of values outside the candidate interval is reported as a description only.")
         analyses.append(
             GroupAnalysis(
                 test_name=test_name,
@@ -846,8 +852,15 @@ def _ci_adequacy(
     return "adequate", None
 
 
+VERIFY_MIN_N = 20   # fewer values than this give no verdict: an outside share of 0/5 says nothing about an interval
+
+
 def _verify_fields(values: pd.Series, test_name: Any, options: ReferenceIntervalOptions) -> dict[str, Any]:
-    """검증(transference) 모드: 후보 참고구간 대비 외부 비율과 EP28식 합격 판정."""
+    """후보 참고구간 밖에 있는 값의 비율과, 그 비율만으로 내린 판정.
+
+    EP28 의 검증 절차(독립 참고인 20명, 첫 배치·두 번째 배치)가 아니다. 그 절차는 RI_EP28 이 수행한다.
+    여기서는 값이 VERIFY_MIN_N 개 이상일 때만 pass/fail 을 적고, 그보다 적으면 insufficient_n 으로 둔다.
+    """
     candidate = options.verify.get(str(test_name))
     if candidate is None and options.verify_low is not None and options.verify_high is not None:
         candidate = (options.verify_low, options.verify_high)
@@ -862,7 +875,7 @@ def _verify_fields(values: pd.Series, test_name: Any, options: ReferenceInterval
     below = int(np.sum(arr < low))
     above = int(np.sum(arr > high))
     rate = (below + above) / n if n else None
-    verdict = None if rate is None else ("pass" if rate <= options.verify_max_outside else "fail")
+    verdict = None if rate is None else "insufficient_n" if n < VERIFY_MIN_N else ("pass" if rate <= options.verify_max_outside else "fail")
     return {
         "verify_low": float(low), "verify_high": float(high), "verify_n_below": below,
         "verify_n_above": above, "verify_outside_rate": rate, "verify_pass": verdict,

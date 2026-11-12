@@ -13,7 +13,7 @@ cross-compile하지 않는다.
 - WiX Toolset v3: MSI 생성 시 필요
 - 인터넷 연결: 최초 `pip`, `npm` 의존성 다운로드에 필요
 
-## 0.4.0 통합 빌드
+## 0.5.0 통합 빌드
 
 프로젝트 루트에서 실행한다. 전용 `.build-venv`를 만들며 전역 Python을 변경하지 않는다.
 기본 출력 위치는 `dist/<pyproject 버전>/`이고, 기존 버전의 배포 폴더를 삭제하지 않는다.
@@ -46,10 +46,10 @@ scripts\build_windows_exe.bat
 
 생성물(**onedir 통합 폴더** — CLI/Web 두 exe 가 `_internal` 의존성을 공유):
 
-- `dist\0.4.0\windows-exe\tametools\tametools.exe`: CLI 실행 파일
-- `dist\0.4.0\windows-exe\tametools\tametools-web.exe`: 웹 워크벤치 실행 파일
-- `dist\0.4.0\windows-exe\tametools\_internal\`: 공유 런타임 의존성(pandas/matplotlib 등)
-- `dist\0.4.0\windows-exe\tametools\plugins\`: **모든 플러그인이 들어있는 폴더**. 기본 플러그인 6개
+- `dist\0.5.0\windows-exe\tametools\tametools.exe`: CLI 실행 파일
+- `dist\0.5.0\windows-exe\tametools\tametools-web.exe`: 웹 워크벤치 실행 파일
+- `dist\0.5.0\windows-exe\tametools\_internal\`: 공유 런타임 의존성(pandas/matplotlib 등)
+- `dist\0.5.0\windows-exe\tametools\plugins\`: **모든 플러그인이 들어있는 폴더**. 기본 플러그인 6개
   (`reference_interval.py`, `clinical_chemistry.py`, `clinical_flags.py`, `clinical_stats.py`,
   `lab_tat.py`, `reference_interval_ep28.py`)와 `README.txt`, 템플릿 `examples\` 가 동봉된다. 빌트인 같은 별도 개념은 없고,
   이 폴더의 `.py` 가 곧 플러그인이며 `--allow-plugins` 없이 기본 로드된다. 파일을 지우면 해당
@@ -64,9 +64,9 @@ onedir 방식이라 실행 시 임시 폴더(`%TEMP%\_MEIxxxx`)로 압축을 풀
 검증:
 
 ```bat
-dist\0.4.0\windows-exe\tametools\tametools.exe --help
-dist\0.4.0\windows-exe\tametools\tametools-web.exe --help
-dist\0.4.0\windows-exe\tametools\tametools-web.exe
+dist\0.5.0\windows-exe\tametools\tametools.exe --help
+dist\0.5.0\windows-exe\tametools\tametools-web.exe --help
+dist\0.5.0\windows-exe\tametools\tametools-web.exe
 ```
 
 `tametools-web.exe`는 내장 FastAPI 서버를 시작하고 브라우저를 `http://127.0.0.1:8765`로 연다.
@@ -83,7 +83,7 @@ scripts\build_windows_msi.bat
 
 생성물:
 
-- `dist\0.4.0\tametools-0.4.0-x64.msi`
+- `dist\0.5.0\tametools-0.5.0-x64.msi`
 
 MSI는 onedir 폴더 전체(두 exe + `_internal` 의존성)를 64비트 `Program Files\tametools`
 (`ProgramFiles64Folder`)에 설치하고, 설치 폴더를 시스템 `PATH`에 추가한다. 시작 메뉴에는
@@ -168,6 +168,6 @@ EXE/MSI 는 Windows 빌드 PC 에서만 만들 수 있으므로(WSL 크로스컴
 
 ## 제한과 운영 권고
 
-- 코드 서명은 아직 포함하지 않았다. 병원 PC의 보안 정책에 따라 서명 인증서 적용이 필요할 수 있다.
+- 코드 서명은 포함되어 있지 않다. 병원 PC의 보안 정책에 따라 서명 인증서 적용이 필요할 수 있다.
 - MSI는 기본적으로 per-machine 설치이며 관리자 권한이 필요할 수 있다.
 - EXE/MSI 빌드는 인터넷 가능한 빌드 PC에서 수행한다. 설치 후 일반 파일 분석에는 별도 Python 설치가 필요하지 않으며, NHANES 다운로드 기능에는 인터넷이 필요하다.

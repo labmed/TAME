@@ -28,7 +28,7 @@ def run_ri_dataset(src: str, *opts: str) -> "object":
     out = Path(tempfile.mkdtemp()) / "ri.tame"
     cmd = [sys.executable, "-m", "tametools", "run-plugin", str(D / src), "REFERENCE_INTERVAL",
            "--output", str(out), *sum(([f"--option", o] for o in opts), [])]
-    p = subprocess.run(cmd, cwd=ROOT, env=ENV, capture_output=True, text=True)
+    p = subprocess.run(cmd, cwd=ROOT, env=ENV, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         raise RuntimeError(p.stdout + p.stderr)
     return read_tame(out)

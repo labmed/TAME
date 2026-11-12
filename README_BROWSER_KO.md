@@ -70,4 +70,4 @@ python scripts/start_tametools_browser.py --port 8865
 
 설치가 중단되거나 재부팅된 경우 같은 시작 파일을 다시 실행하면 설치를 이어서 시도합니다. 동시에 두 창에서 설치하지 않도록 자동 잠금을 사용하며, 종료되면 잠금은 해제됩니다. Chrome이 일반적인 설치 위치에 없다면 `TAMETOOLS_CHROME` 환경변수에 Chrome 실행파일 경로를 지정할 수 있습니다.
 
-제품 버전: **0.4.0**. 이 ZIP에는 tametools exe, MSI, Python 실행파일, 가상환경을 포함하지 않습니다. Python 환경은 첫 실행 시 해당 컴퓨터에 맞게 준비합니다.
+제품 버전: **0.5.0**. 이 ZIP에는 tametools exe, MSI, Python 실행파일, 가상환경을 포함하지 않습니다. Python 환경은 첫 실행 시 해당 컴퓨터에 맞게 준비합니다.

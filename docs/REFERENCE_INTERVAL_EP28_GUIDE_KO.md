@@ -26,7 +26,7 @@ python -m tametools analyze data.tame RI_EP28 \
 `OUTPUT_DIR`는 새 경로여야 한다. 기존 보고서를 덮어쓰지 않는다.
 보고서의 값은 원래 단위로 표시하며 단위 변환을 추정하지 않는다.
 
-이 플러그인은 tametools 0.4.0의 기본 플러그인 로더에서 제공됩니다.
+이 플러그인은 tametools 기본 플러그인으로 제공됩니다.
 
 ## 2. 설정 위치와 연구 계획
 

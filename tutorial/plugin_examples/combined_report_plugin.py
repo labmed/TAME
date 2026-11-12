@@ -5,17 +5,15 @@ import tempfile
 
 import pandas as pd
 
-from tametools.models import OperationOutput, TameDataset
-from tametools.plugin_base import run_plugin
-from tametools.plugin_base.base import register_plugin
-from tametools.plugin_base.roles import RESULT_ROLE, result_binding
-from tametools.reporting import chart_spec, with_visualizations, write_docx_report
+from tametools.plugin_api import (RESULT_ROLE, OperationOutput, TameDataset, chart_spec, register_plugin, result_binding,
+                                  run_plugin, with_visualizations, write_docx_report)
 
 
 @register_plugin(
     "COMBINED_CHEMISTRY_REPORT",
     description="Example report plugin: reuse existing plugins, combine tables and charts, and write a docx report.",
     roles=(RESULT_ROLE,),
+    dependencies=("REFERENCE_INTERVAL", "CHEMISTRY_ANALYSIS"),
 )
 def combined_chemistry_report_plugin(dataset: TameDataset, meta: dict, step_name: str, options: dict) -> OperationOutput:
     bound_results = result_binding(dataset, options)

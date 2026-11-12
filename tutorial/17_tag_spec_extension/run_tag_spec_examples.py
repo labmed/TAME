@@ -16,10 +16,18 @@ CUSTOM_AGE5 = HERE / "custom_tags_age5.tame"
 WIDE_PIVOT = HERE / "wide_pivot_context.tame"
 
 
+# The tametools of the Python that runs this script, so the examples exercise the source they belong to and not
+# whichever tametools happens to be first on PATH. Set TAMETOOLS_CLI to run an installed command instead.
+TAMETOOLS = [os.environ["TAMETOOLS_CLI"].strip()] if os.environ.get("TAMETOOLS_CLI", "").strip() else [sys.executable, "-m", "tametools"]
+
+
 def command(*args: str) -> list[str]:
-    if shutil.which("tametools"):
-        return ["tametools", *args]
-    return [sys.executable, "-m", "tametools", *args]
+    return [*TAMETOOLS, *args]
+
+
+def shown(args: list[str]) -> str:
+    """The command as a reader would type it."""
+    return " ".join(["tametools", *args[len(TAMETOOLS):]] if args[:len(TAMETOOLS)] == TAMETOOLS else args)
 
 
 def path_arg(path: Path) -> str:
@@ -86,6 +94,8 @@ def run_step(title: str, purpose: str, args: list[str], stdout_path: Path, env: 
         cwd=ROOT,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=False,
@@ -98,7 +108,7 @@ def run_step(title: str, purpose: str, args: list[str], stdout_path: Path, env: 
         purpose,
         "",
         "```bash",
-        "$ " + " ".join(args),
+        "$ " + shown(args),
         status,
         completed.stdout.strip(),
         "```",
@@ -156,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = f"{ROOT / 'tametools' / 'src'}:{ROOT}"
+    env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "tametools" / "src"), str(ROOT), env.get("PYTHONPATH", "")])
+    env["PYTHONIOENCODING"] = "utf-8"      # the output of each step is captured and read as UTF-8
 
     sections = ["# Tag spec extension execution log", ""]
     failed = False

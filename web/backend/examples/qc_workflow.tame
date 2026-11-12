@@ -1,0 +1,202 @@
+<META>
+[INFO]
+DESCRIPTION = "Synthetic control-material measurements for trying a composed QC workflow. Not patient data."
+DEFAULT_PLUGIN = "QC_WORKFLOW"
+LICENSE = "CC0-1.0"
+
+[PLUGINS]
+ENABLED = ["QC_WORKFLOW"]
+
+[COLUMN]
+
+[COLUMN."측정묶음"]
+ID = "run"
+TAGS = ["STR"]
+
+[COLUMN."측정시각"]
+ID = "time"
+TAGS = ["DATETIME"]
+
+[COLUMN."관리수준"]
+ID = "level"
+TAGS = ["CATEGORY"]
+
+[COLUMN."관리물질lot"]
+ID = "lot"
+TAGS = ["CATEGORY"]
+
+[COLUMN."분석장비"]
+ID = "instrument"
+TAGS = ["INSTRUMENT", "CATEGORY"]
+
+[COLUMN."혈당"]
+ID = "glucose"
+UNIT = "mg/dL"
+TAGS = ["RESULT", "NUM", "NULLABLE"]
+
+[COLUMN."효소활성"]
+ID = "alt"
+UNIT = "U/L"
+TAGS = ["RESULT", "NUM", "NULLABLE"]
+
+[ACTIONS]
+
+[ACTIONS.SORT_QC]
+TYPE = "SORT"
+BY = ["id:time", "id:level"]
+
+[WORKS]
+DEFAULT = ["QC_WORKFLOW"]
+
+[QC_ANALYSIS]
+RESULT_IDS = ["glucose", "alt"]
+RUN_ID = "run"
+TIME_ID = "time"
+LEVEL_ID = "level"
+LOT_ID = "lot"
+INSTRUMENT_ID = "instrument"
+MODE = "WESTGARD"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "glucose"
+LEVEL = "L"
+LOT = "A"
+INSTRUMENT = "Analyzer-1"
+MEAN = 100
+SD = 2
+UNIT = "mg/dL"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-01T00:00:00+00:00"
+VALID_TO = "2026-01-07T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "glucose"
+LEVEL = "L"
+LOT = "B"
+INSTRUMENT = "Analyzer-1"
+MEAN = 100
+SD = 2
+UNIT = "mg/dL"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-07T00:00:00+00:00"
+VALID_TO = "2027-01-01T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "glucose"
+LEVEL = "H"
+LOT = "A"
+INSTRUMENT = "Analyzer-1"
+MEAN = 200
+SD = 4
+UNIT = "mg/dL"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-01T00:00:00+00:00"
+VALID_TO = "2026-01-07T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "glucose"
+LEVEL = "H"
+LOT = "B"
+INSTRUMENT = "Analyzer-1"
+MEAN = 200
+SD = 4
+UNIT = "mg/dL"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-07T00:00:00+00:00"
+VALID_TO = "2027-01-01T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "alt"
+LEVEL = "L"
+LOT = "A"
+INSTRUMENT = "Analyzer-1"
+MEAN = 20
+SD = 1
+UNIT = "U/L"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-01T00:00:00+00:00"
+VALID_TO = "2026-01-07T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "alt"
+LEVEL = "L"
+LOT = "B"
+INSTRUMENT = "Analyzer-1"
+MEAN = 20
+SD = 1
+UNIT = "U/L"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-07T00:00:00+00:00"
+VALID_TO = "2027-01-01T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "alt"
+LEVEL = "H"
+LOT = "A"
+INSTRUMENT = "Analyzer-1"
+MEAN = 60
+SD = 3
+UNIT = "U/L"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-01T00:00:00+00:00"
+VALID_TO = "2026-01-07T00:00:00+00:00"
+
+[[QC_ANALYSIS.BASELINES]]
+RESULT_ID = "alt"
+LEVEL = "H"
+LOT = "B"
+INSTRUMENT = "Analyzer-1"
+MEAN = 60
+SD = 3
+UNIT = "U/L"
+REFERENCE = "Declared example baseline"
+VALID_FROM = "2026-01-07T00:00:00+00:00"
+VALID_TO = "2027-01-01T00:00:00+00:00"
+
+[QC_WORKFLOW]
+PREPROCESS = "SORT_QC"
+TREND_WINDOW = 3
+TITLE = "QC 플러그인 연결 예제"
+
+[QC_WORKFLOW.REPORT]
+TABLES = ["precision.main", "rules.main", "trend.main", "review.main"]
+
+[QC_WORKFLOW.REPORT.TABLE_TITLES]
+"precision.main" = "관리수준별 정밀도"
+"rules.main" = "관측별 관리규칙"
+"trend.main" = "기준값 대비 편차 추세"
+"review.main" = "run별 검토 요약"
+
+[QC_WORKFLOW.REPORT.TABLE_COLUMNS]
+"precision.main" = ["result_id", "level", "lot", "n", "mean", "sd", "cv_percent", "status"]
+"rules.main" = ["result_id", "run", "level", "lot", "value", "z", "violation", "status"]
+"trend.main" = ["test", "period", "count", "mean", "moving_avg"]
+"review.main" = ["result_id", "run", "lot", "observations", "flagged", "not_evaluated", "review"]
+</META>
+<DATA>
+측정묶음	측정시각	관리수준	관리물질lot	분석장비	혈당	효소활성
+run-12	2026-01-12T08:00:00+00:00	H	B	Analyzer-1	200	60.0
+run-12	2026-01-12T08:00:00+00:00	L	B	Analyzer-1	<<NULL>>	20.0
+run-11	2026-01-11T08:00:00+00:00	H	B	Analyzer-1	201.2	59.25
+run-11	2026-01-11T08:00:00+00:00	L	B	Analyzer-1	100	19.75
+run-10	2026-01-10T08:00:00+00:00	H	B	Analyzer-1	189.6	58.5
+run-10	2026-01-10T08:00:00+00:00	L	B	Analyzer-1	105.4	19.5
+run-09	2026-01-09T08:00:00+00:00	H	B	Analyzer-1	210.0	61.5
+run-09	2026-01-09T08:00:00+00:00	L	B	Analyzer-1	95.0	20.5
+run-08	2026-01-08T08:00:00+00:00	H	B	Analyzer-1	200.8	60.75
+run-08	2026-01-08T08:00:00+00:00	L	B	Analyzer-1	100.6	20.25
+run-07	2026-01-07T08:00:00+00:00	H	B	Analyzer-1	200.4	60.0
+run-07	2026-01-07T08:00:00+00:00	L	B	Analyzer-1	100	20.0
+run-06	2026-01-06T08:00:00+00:00	H	A	Analyzer-1	200.8	59.25
+run-06	2026-01-06T08:00:00+00:00	L	A	Analyzer-1	106.4	19.75
+run-05	2026-01-05T08:00:00+00:00	H	A	Analyzer-1	200.4	58.5
+run-05	2026-01-05T08:00:00+00:00	L	A	Analyzer-1	99.2	19.5
+run-04	2026-01-04T08:00:00+00:00	H	A	Analyzer-1	200.8	61.5
+run-04	2026-01-04T08:00:00+00:00	L	A	Analyzer-1	105.2	20.5
+run-03	2026-01-03T08:00:00+00:00	H	A	Analyzer-1	201.6	60.75
+run-03	2026-01-03T08:00:00+00:00	L	A	Analyzer-1	105.0	20.25
+run-02	2026-01-02T08:00:00+00:00	H	A	Analyzer-1	198.8	60.0
+run-02	2026-01-02T08:00:00+00:00	L	A	Analyzer-1	101.0	20.0
+run-01	2026-01-01T08:00:00+00:00	H	A	Analyzer-1	200.8	59.25
+run-01	2026-01-01T08:00:00+00:00	L	A	Analyzer-1	100	19.75
+</DATA>

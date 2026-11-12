@@ -33,6 +33,8 @@ A data-only sidecar file.
 ## 3. Character Encoding and Container Syntax
 
 - TAME text files MUST use UTF-8 encoding.
+- A reader MUST reject text that is not UTF-8. It MUST NOT guess another encoding; converting a file is a separate
+  step in which the source encoding is named.
 - Canonical writers SHOULD emit LF line endings.
 - Section names are `SCHEMA`, `JOB`, `META`, and `DATA`.
 - Readers MUST treat section tags case-insensitively.
@@ -54,6 +56,26 @@ A data-only sidecar file.
 <META>
 <DATA>
 ```
+
+### 3.1 Reserved Markers
+
+The opening and closing tags of the four sections are reserved in the whole file, in any letter case and with
+optional blanks inside the angle brackets. They are not interpreted differently inside a quoted cell or a TOML string.
+
+- A cell value, a header, or a control-section text MUST NOT contain a section tag such as `</DATA>` or `<meta>`.
+- A writer MUST refuse to produce a `.tame` file from such content. The content can be stored as `.xlsx`.
+- A reader MUST check these rules every time it reads a file and MUST reject, without returning partial data, a file in which
+  - an opening or closing tag appears more than once,
+  - a closing tag has no opening tag before it, or a section is not closed before the next one opens,
+  - anything other than blank lines stands outside the sections.
+- A reader MUST ignore a byte-order mark at the start of the file.
+- A file without any section tag is accepted only as `.data.tame` (the whole text is `DATA`) or `.meta.tame` (the whole text is `META`).
+
+### 3.2 Section Boundaries
+
+- Blank lines directly after an opening tag and directly before a closing tag are not part of the section.
+- Everything else in `DATA` is data. In particular, leading and trailing blanks of a cell, including the last cell
+  of the last row, MUST be preserved.
 
 ## 4. Section Semantics
 
@@ -226,13 +248,21 @@ The canonical default tokens are:
 ### 10.4 Escaping Reserved Tokens
 
 If a literal string equals a reserved token, it MUST be escaped with the default prefix `\`.
+The same holds for a literal string that already looks escaped, that is, a reserved token preceded by one or more
+escape prefixes: it is written with one additional prefix. A reader removes exactly one prefix from such a value,
+so every literal string reads back as it was written.
 
 Examples:
 
 ```text
-\<<NULL>>
-\<<EMPTY>>
+\<<NULL>>      the text <<NULL>>
+\<<EMPTY>>     the text <<EMPTY>>
+\\<<NULL>>     the text \<<NULL>>
+\plain         the text \plain (an escape prefix in front of ordinary text is ordinary text)
 ```
+
+Files written by tametools before 0.5 stored the text `\<<NULL>>` without the additional prefix. Such a cell
+reads as `<<NULL>>`, as it did then.
 
 ### 10.5 Token Configuration
 
@@ -353,13 +383,20 @@ def run(dataset, options, api):
 
 ### 12.5 `META[PLUGINS]` and `META[USE]`
 
-Optional external module registration.
+Optional per-file plugin selection and external module registration.
+
+`ENABLED` is a list of registered plugin names. Omission preserves access to all installed plugins;
+an empty list disables plugin execution. Declared plugin dependencies and equivalent registered
+aliases are also enabled. The shared plugin runner enforces this setting across the CLI, web,
+WORKS and composed workflows. It does not grant permission to import external Python modules.
+`MODULES` lists import locations, independently of the selected plugin names.
 
 Examples:
 
 ```toml
 [PLUGINS]
-MODULES = ["tutorial.plugin_examples.example_count_plugin"]
+ENABLED = ["QC_WORKFLOW", "RI_EP28"]
+# MODULES = ["my_lab.analysis_plugins"]
 
 [USE]
 DEFAULT = ["package.module"]
@@ -467,6 +504,13 @@ When writing `.xlsx` from a dataset:
 - if no column has the `SHEET` tag, a single data sheet named `DATA` is written
 - if a column has the `SHEET` tag, rows are grouped by that column and written to separate sheets
 
+### 13.5 Text and Formulas
+
+- A writer MUST store text as text. A value that begins with `=`, such as the comparator result `=5`, MUST NOT be
+  written as a formula. This applies to data cells, headers, and the lines of control sheets.
+- A reader uses the result that the workbook stores for a formula. A formula cell without a stored result MUST be
+  rejected rather than read as an absent value. A formula whose stored result is empty text is accepted.
+
 ## 14. Sidecar Resolution
 
 The following sidecar conventions are standardized:
@@ -515,10 +559,11 @@ P001	F	32	<3
 </DATA>
 ```
 
-## 17. tametools 0.4.0 workflow extensions
+## 17. tametools workflow extensions
 
 The following application-level declarations complement this container specification:
 
+- [META sections read and written by tametools](docs/TAME_META_SECTIONS.md)
 - [Analysis plans](docs/TAME_ANALYSIS_PLAN_V1.md)
 - [Measurement context and units](docs/TAME_MEASUREMENT_TAGS.md)
 - [Source-specific category and age declarations](docs/INIT_SEMANTICS_KO.md)

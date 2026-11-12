@@ -7,8 +7,10 @@ from .analysis import describe_dataset, exploratory_data_analysis, validate_data
 from .config import ci_get
 from .embedded_functions import run_embedded_function
 from .evaluation import evaluate_dataset
+from .chain import run_chain
 from .models import OperationOutput, PipelineResult, TameDataset
-from .plugin_base.manager import configured_plugin_modules, run_plugin
+from .plugin_base.base import normalize_plugin_name
+from .plugin_base.manager import configured_plugin_modules, run_plugin, unknown_plugin_hints
 from .audit import dataset_content_hash
 from .provenance import append_log_entry, inherit_logs, run_scope, operation_scope
 from .transforms import anonymize_dataset, harmonize_comparator_thresholds, sample_dataset, split_comparator_columns
@@ -23,25 +25,17 @@ def execute_work(
     log_level: str = "detailed",
 ) -> PipelineResult:
     steps = _resolve_work(dataset.meta, work_name)
-    outputs: list[OperationOutput] = []
-    current = dataset
     detailed_log = str(log_level or "detailed").strip().lower() == "detailed"
 
-    with run_scope():
-        for step in steps:
-            with operation_scope(f"WORK:{step}", [current], parameters=ci_get(dataset.meta, step, {})):
-                input_hash = dataset_content_hash(current)
-                output = _execute_step(current, step, dataset.meta, allow_functions=allow_functions, allow_plugins=allow_plugins)
-                target = output.dataset if output.dataset is not None else current
-                output.dataset = inherit_logs(target, current)
-                if detailed_log:
-                    output.dataset = _logged_work_dataset(
-                        output.dataset, step=step, options=ci_get(dataset.meta, step, {}),
-                        input_hash=input_hash, output=output, input_dataset=current)
-                outputs.append(output)
-                current = output.dataset
+    def record(result, step, output, input_dataset, input_hash):
+        return _logged_work_dataset(result, step=step, options=ci_get(dataset.meta, step, {}),
+                                    input_hash=input_hash, output=output, input_dataset=input_dataset)
 
-    return PipelineResult(work_name=work_name, final_dataset=current, outputs=outputs)
+    return run_chain(
+        dataset, work_name, steps,
+        scope=lambda step: (f"WORK:{step}", ci_get(dataset.meta, step, {})),
+        execute=lambda current, step: _execute_step(current, step, dataset.meta, allow_functions=allow_functions, allow_plugins=allow_plugins),
+        record=record if detailed_log else None, hash_input=True)
 
 
 def _logged_work_dataset(
@@ -343,13 +337,18 @@ class ExtensionStepHandler:
             allow_external=context.allow_plugins,
         )
         if plugin_output is not None:
-            return plugin_output
+            # In a chain a plugin's table is its result: the next step receives it, as it would a dataset.
+            from .plugin_workflow import passed_on
+            return passed_on(plugin_output, normalize_plugin_name(plugin_name))
         if configured_plugin_modules(context.meta) and not context.allow_plugins:
             raise PermissionError(
                 "External plugin modules are disabled. Re-run with allow_plugins=True only for trusted local files."
             )
 
-        return OperationOutput(name=context.step_name, dataset=context.dataset, message="step skipped: no built-in handler", status="SKIPPED")
+        # Nobody knows this name. The step is recorded as skipped and the chain ends here (see tametools.chain).
+        hints = unknown_plugin_hints(plugin_name, context.meta, allow_external=context.allow_plugins)
+        return OperationOutput(name=context.step_name, dataset=context.dataset, status="SKIPPED", warnings=hints or None,
+                               message="step skipped: no built-in handler")
 
 
 STEP_HANDLERS: tuple[StepHandler, ...] = (

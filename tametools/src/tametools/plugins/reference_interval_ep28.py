@@ -465,7 +465,9 @@ def _verification(g,cfg,identity,subject_known,detected,censored_n):
 
 
 @register_plugin("REFERENCE_INTERVAL_EP28",description="EP28 reference-interval methods, outlier audit, partitions, verification and Korean reports.",roles=(RESULT_ROLE,))
-@register_plugin("RI_EP28",description="Alias of REFERENCE_INTERVAL_EP28.",roles=(RESULT_ROLE,))
+# RI_EP28 is the name hosts use for it (the settings section [RI_EP28], the log). It asks for the host's
+# reference-interval screen; a host that has none (the command line) runs it like any other plugin.
+@register_plugin("RI_EP28",description="Alias of REFERENCE_INTERVAL_EP28.",roles=(RESULT_ROLE,),panel="reference_interval")
 @operation_boundary("REFERENCE_INTERVAL_EP28")
 def reference_interval_ep28(dataset,meta,step_name,options):
     cfg=_config(dataset,options)

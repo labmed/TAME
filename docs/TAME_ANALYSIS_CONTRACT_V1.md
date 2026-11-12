@@ -1,7 +1,7 @@
 # TAME Analysis Contract 1
 
-2026-09-11. Implemented optional extension to the existing TSV/TOML container,
-not a claim that all historical V2 proposals have been implemented.
+An optional extension to the existing TSV/TOML container. It does not cover
+every proposal that was discussed for a second version of the format.
 
 ## Scope
 

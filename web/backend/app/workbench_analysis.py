@@ -34,10 +34,41 @@ def require_example_dependencies():
         raise ModuleNotFoundError('누락된 패키지: ' + ', '.join(missing), name=missing[0])
 
 
+REFERENCE_PANEL = 'reference_interval'      # this workbench's reference-interval screen, as plugins name it: register_plugin(panel=...)
+
+
+def reference_plugin():
+    """Name of the plugin that is run through the reference-interval screen; '' when no installed plugin declares it.
+
+    The workbench knows the screen, not the plugin. The declaring name is the one that goes into files: the
+    settings section [NAME], the result key NAME_RESULT, and the log. Only bundled and installed plugins count.
+    """
+    from tametools.plugin_base.manager import panel_plugin
+    spec = panel_plugin(REFERENCE_PANEL)
+    return spec.name if spec else ''
+
+
+def reference_plugin_names(*, superseded=False):
+    """Every name of that plugin; with ``superseded`` also the older plugins that name it as their replacement."""
+    from tametools.plugin_base import list_plugins
+    from tametools.plugin_base.manager import same_plugin_names
+    name = reference_plugin()
+    names = same_plugin_names(name) if name else []
+    if superseded:
+        names = [*names, *(spec.name for spec in list_plugins() if spec.superseded_by in names and spec.name not in names)]
+    return names
+
+
+def reference_result_key():
+    """Where the reference-interval plugin keeps what it applied, in the META of its result (None without such a plugin)."""
+    name = reference_plugin()
+    return name + '_RESULT' if name else None
+
+
 def data_role(dataset):
     if ci_get(ci_get(dataset.meta, 'WEB_WORKBENCH', {}), 'KIND', '') == 'result':
         return 'result'
-    if any(ci_get(dataset.meta, key, None) is not None for key in ('EDA', 'RI_EP28_RESULT', 'ANALYSIS_RESULT')):
+    if any(key and ci_get(dataset.meta, key, None) is not None for key in ('EDA', reference_result_key(), 'ANALYSIS_RESULT')):
         return 'result'
     return 'input'
 
@@ -101,37 +132,75 @@ def bind_reference_input(dataset):
     return prepared
 
 
+MANAGED_PATH_KEYS = {'OUTPUT_DIR', 'REPORT_PATH'}       # where files go is decided by whoever runs the analysis, not stored with it
+
+
+def replay_meta(meta, plugin, options, applied):
+    """META for the saved analysis input: running it again gives what this run gave.
+
+    The opened file may hold the plugin's settings under more than one name (the plugin's other names, or another
+    letter case), and the plugin decides which of them wins. Left in place, a section the web options had overridden
+    would win again when the saved input is run. So every such section is folded into one, under the plugin's name,
+    holding the values that were actually applied for each setting the file or the request named. Paths are left out.
+    """
+    names = {name.upper() for name in reference_plugin_names()} | {str(plugin).upper()}
+    saved = {}
+    result = {}
+    for key, value in meta.items():
+        if str(key).upper() in names and isinstance(value, dict):
+            saved.update({str(name).upper(): deepcopy(item) for name, item in value.items()})
+        else:
+            result[key] = deepcopy(value)
+    saved.update({str(name).upper(): deepcopy(item) for name, item in options.items()})
+    for name in list(saved):
+        if name in MANAGED_PATH_KEYS:
+            del saved[name]
+        elif applied.get(name) is not None:
+            saved[name] = deepcopy(applied[name])      # what the plugin reported as applied settles any disagreement
+    result[plugin] = saved
+    return result
+
+
 @web_operation('REFERENCE_INTERVAL_EP28')
 def reference_analysis(payload, options=None, workspace=None):
-    from .tametools_bridge import dataset_from_payload, dataset_payload, derived_filename, frame_records, payload_filename
+    from .tametools_bridge import _plugin_slug, dataset_from_payload, dataset_payload, derived_filename, frame_records, payload_filename
+    plugin = reference_plugin()         # the plugin that declared this screen; its name is the settings section and the log name
+    if not plugin:
+        raise ValueError('참고구간 화면으로 실행하는 플러그인이 설치되어 있지 않습니다 '
+                         f'(panel="{REFERENCE_PANEL}" 을 선언한 플러그인 없음). tametools 설치와 Python 실행 경로를 확인해 주세요.')
     dataset = bind_reference_input(dataset_from_payload(payload, standardize=False))
     cfg = deepcopy(options or {})
     if any(str(k).upper() in {'OUTPUT_DIR', 'REPORT_PATH'} for k in cfg):
         raise ValueError('보고서는 웹앱의 작업 폴더에 저장됩니다. OUTPUT_DIR/REPORT_PATH 옵션은 제거해 주세요.')
-    cfg.setdefault('OUTLIER_METHOD', ci_get(ci_get(dataset.meta, 'RI_EP28', {}), 'OUTLIER_METHOD', 'TUKEY'))
-    cfg.setdefault('OUTLIER_ACTION', ci_get(ci_get(dataset.meta, 'RI_EP28', {}), 'OUTLIER_ACTION', 'FLAG'))
-    cfg.setdefault('POPULATION', deepcopy(ci_get(ci_get(dataset.meta, 'RI_EP28', {}), 'POPULATION', {})))
+    declared = ci_get(dataset.meta, plugin, {})
+    cfg.setdefault('OUTLIER_METHOD', ci_get(declared, 'OUTLIER_METHOD', 'TUKEY'))
+    cfg.setdefault('OUTLIER_ACTION', ci_get(declared, 'OUTLIER_ACTION', 'FLAG'))
+    cfg.setdefault('POPULATION', deepcopy(ci_get(declared, 'POPULATION', {})))
     # Survey records are examples, not independently screened reference individuals.
     if ci_get(dataset.meta, 'SURVEY', None) is not None:
         cfg['POPULATION']['REFERENCE_INDIVIDUALS_CONFIRMED'] = False
     report_id = secrets.token_urlsafe(18) if workspace else None
     folder = Path(workspace)/'analysis_reports'/report_id if workspace else None
+    # Where reports go is this app's decision, never the file's: META[plugin].OUTPUT_DIR / REPORT_PATH (under either
+    # name of the plugin) would otherwise send the Word report to a path chosen by whoever wrote the file. Options
+    # are applied after the file's settings, so both keys are always set here.
+    cfg.update(OUTPUT_DIR=str(folder) if folder else '', REPORT_PATH='')
     if folder:
-        cfg.update(OUTPUT_DIR=str(folder), PLOT_MAX_GROUPS=6)
-    output = run_plugin(dataset, 'RI_EP28', dataset.meta, 'RI_EP28', cfg)
+        cfg.update(PLOT_MAX_GROUPS=6)
+    output = run_plugin(dataset, plugin, dataset.meta, plugin, cfg)
     if output is None or output.dataset is None:
-        raise ValueError('RI_EP28 플러그인을 불러오지 못했습니다. tametools 0.4.0 설치와 Python 실행 경로를 확인해 주세요.')
+        raise ValueError(f'{plugin} 플러그인을 불러오지 못했습니다. tametools 설치와 Python 실행 경로를 확인해 주세요.')
     if output.table is None or output.table.empty:
         raise ValueError('분석 가능한 검사값이 없습니다. RESULT 태그, 대상자 조건, 결측값과 부등호 처리 정책을 확인해 주세요.')
     warnings = [*data_context(dataset)['warnings'], *(output.warnings or [])]
-    name = derived_filename(payload, 'ri_ep28')
+    name = derived_filename(payload, _plugin_slug(plugin))
     meta = deepcopy(output.dataset.meta)
-    meta['WEB_WORKBENCH'] = dict(KIND='result', ANALYSIS='RI_EP28', SOURCE=payload_filename(payload), REPORT_ID=report_id or '')
+    meta['WEB_WORKBENCH'] = dict(KIND='result', ANALYSIS=plugin, SOURCE=payload_filename(payload), REPORT_ID=report_id or '')
     result = append_log_entry(output.dataset.replace(meta=meta), action='reference-interval',
-        parent=payload_filename(payload), output=name, parameters={'plugin':'RI_EP28','options':cfg}, warnings=warnings, operation_output=output,
+        parent=payload_filename(payload), output=name, parameters={'plugin':plugin,'options':cfg}, warnings=warnings, operation_output=output,
         message=f'EP28 분석 결과 {len(output.table)}행과 상세 산출물을 생성했습니다.')
     response = dataset_payload(result, filename=name, warnings=warnings)
-    effective = ci_get(result.meta, 'RI_EP28_RESULT', {})
+    effective = ci_get(result.meta, reference_result_key(), {})
     settings = json.loads(ci_get(effective, 'SETTINGS_JSON', '{}'))
     response.update(resultType='reference_interval', analysisTables={}, analysisTableFiles={},
                     analysisSource=payload_filename(payload), analysisSettings={k:v for k,v in settings.items() if k not in {'OUTPUT_DIR','REPORT_PATH'}},
@@ -148,12 +217,9 @@ def reference_analysis(payload, options=None, workspace=None):
         from tametools.io import write_tame
         # The final downloaded result includes the complete web/input chain.
         write_tame(folder/'workbench_result.tame', result)
-        input_meta = deepcopy(dataset.meta)
-        input_meta.setdefault('RI_EP28', {}).update({k:v for k,v in cfg.items() if k not in {'OUTPUT_DIR','REPORT_PATH'}})
-        input_meta['RI_EP28'].pop('OUTPUT_DIR', None)
-        input_meta['RI_EP28'].pop('REPORT_PATH', None)
+        input_meta = replay_meta(dataset.meta, plugin, cfg, settings)
         prepared_input = append_log_entry(dataset.replace(meta=input_meta), action='ANALYSIS_INPUT', input_dataset=dataset,
-            parameters={'RI_EP28':input_meta['RI_EP28']}, message='보고서 재검증용 분석 입력과 적용 옵션을 저장했습니다.')
+            parameters={plugin:input_meta[plugin]}, message='보고서 재검증용 분석 입력과 적용 옵션을 저장했습니다.')
         write_tame(folder/'analysis_input.tame', prepared_input, standardize_sex_values=False)
         from tametools.provenance_audit import history_payload
         history = history_payload(result)
@@ -178,8 +244,10 @@ def reference_analysis(payload, options=None, workspace=None):
         with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
             for p in sorted(folder.rglob('*')):
                 if p.is_file() and p != archive:z.write(p,p.relative_to(folder).as_posix())
+        # Only what is really there is offered for download.
         response['reportFiles'] = [dict(label=label, url=f'/api/analysis-reports/{report_id}/{file}', filename=file)
-            for label,file in [('Word 보고서','reference_interval_report_ko.docx'),('전체 보고서 ZIP','reference_interval_report.zip')]]
+            for label,file in [('Word 보고서','reference_interval_report_ko.docx'),('전체 보고서 ZIP','reference_interval_report.zip')]
+            if (folder/file).is_file()]
     return response
 
 
@@ -225,3 +293,23 @@ def comparator_policy(dataset, policy):
                 if 'TAGS' in entry:entry['TAGS']=tags
         columns.append(ColumnSpec(build_header(column.name,tags),column.name,tuple(tags)))
     return dataset.replace(columns=columns,meta=meta),changed
+
+
+def attach_workflow_report(response, output, report_id, workspace):
+    """Expose any reporting plugin's tables, charts and shared report artifacts."""
+    from .tametools_bridge import frame_records
+    response.update(resultType='workflow', analysisTables={}, analysisTableFiles={},
+                    workflow=output.dataset.meta.get('WORKFLOW_RESULT',{}))
+    index = {}
+    folder = Path(workspace)/'analysis_reports'/report_id if report_id else None
+    for name, frame in (output.tables or {}).items():
+        if folder and len(frame)>200:
+            index[name] = dict(rowCount=len(frame),columns=list(frame.columns))
+            response['analysisTableFiles'][name] = dict(**index[name],pageUrl=f'/api/analysis-tables/{report_id}/{name}',
+                downloadUrl=f'/api/analysis-tables/{report_id}/{name}/csv')
+        else:
+            response['analysisTables'][name] = frame_records(frame)
+    if folder:
+        (folder/'table_index.json').write_text(json.dumps(index,ensure_ascii=False),encoding='utf-8')
+        response['reportFiles'] = [dict(label=label,url=f'/api/analysis-reports/{report_id}/{name}',filename=name)
+            for label,name in [('HTML 보고서','report.html'),('Word 보고서','report.docx'),('전체 결과 ZIP','report.zip')]]

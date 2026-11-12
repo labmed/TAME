@@ -2664,7 +2664,8 @@ class PluginTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "RUN_ID"):
             run_plugin(dataset, "QC_ANALYSIS", dataset.meta, "QC_ANALYSIS", {"MODE": "WESTGARD"})
         westgard = run_plugin(dataset, "QC_ANALYSIS", dataset.meta, "QC_ANALYSIS", {"MODE": "LEVEY_JENNINGS"})
-        self.assertIn("NONE", westgard.table["violation"].tolist())
+        self.assertEqual(set(westgard.table["violation"]), {"NOT_APPLIED"})
+        self.assertTrue(any("Retrospective" in warning for warning in westgard.warnings))
         self.assertEqual(validate_dataset(westgard.dataset).issues, [])
 
         trend = run_plugin(dataset, "RESULT_TREND", dataset.meta, "RESULT_TREND", {"PERIOD": "M"})
@@ -3525,9 +3526,10 @@ class TutorialExamplesTest(unittest.TestCase):
             self.skipTest("examples/run_all.py not present")
         env = dict(os.environ)
         env["PYTHONPATH"] = str(repo_root / "tametools" / "src") + os.pathsep + env.get("PYTHONPATH", "")
+        env["PYTHONIOENCODING"] = "utf-8"
         proc = subprocess.run(
             [sys.executable, str(runner)],
-            capture_output=True, text=True, env=env, cwd=str(repo_root),
+            capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, cwd=str(repo_root),
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
         self.assertIn("40/40 PASS", proc.stdout)

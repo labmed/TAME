@@ -12,7 +12,9 @@ class StudyMethodsTests(unittest.TestCase):
         x=4+np.exp(np.linspace(.5,2.5,120))
         a=e.estimate_limits(x,'BOXCOX_SHIFTED_PARAMETRIC',boxcox={'ORIGIN':4})
         b=e.estimate_limits(x-4,'BOXCOX_PARAMETRIC')
-        np.testing.assert_allclose([a.low,a.high],np.array([b.low,b.high])+4,atol=2e-5)
+        # The same data through two searches for the power: the bounded search of the shifted method and SciPy's default
+        # for the plain one. Near a power of zero SciPy stops a few 1e-6 away, so the limits agree to about 1e-6 relative.
+        np.testing.assert_allclose([a.low,a.high],np.array([b.low,b.high])+4,rtol=1e-5)
         fit=e.estimate_limits(x,'BOXCOX_SHIFTED_PARAMETRIC')
         shifted=e.estimate_limits(88.4*x+20,'BOXCOX_SHIFTED_PARAMETRIC')
         np.testing.assert_allclose([shifted.low,shifted.high],88.4*np.array([fit.low,fit.high])+20,atol=.003)

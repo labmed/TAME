@@ -26,6 +26,10 @@ from tametools.models import ColumnSpec, TameDataset  # noqa: E402
 from tametools.plugin_base import run_plugin  # noqa: E402
 from tametools.tags import build_header  # noqa: E402
 
+for _stream in (sys.stdout, sys.stderr):      # a console code page without a character (cp949 has no "≈") must not stop the run
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 PROBE = "tutorial/14_capability_probe/clinical_chem.tame"
 PRE_META = "tutorial/14_capability_probe/examples/preprocessing.meta.tame"
 PAIRED = "tutorial/14_capability_probe/examples/paired_methods.tame"

@@ -53,20 +53,20 @@ python3 tutorial/14_capability_probe/examples_v2/run_all_v2.py
 분석은 모두 `run-plugin`이 태그 카탈로그(RESULT/ITEM/REF_*/INSTRUMENT/시각 태그 등)에서
 역할 컬럼을 자동 탐색하므로 컬럼명을 옵션으로 지정하지 않는다.
 
-## 검토에서 도출한 개선점
+## 알아둘 점
 
-전수 통과(40/40)이지만, **통과한다는 것이 "태그만으로 완전히 재사용 가능"을 뜻하지는 않는다.**
+40개 예제가 모두 통과하지만, **통과한다는 것이 "태그만으로 완전히 재사용 가능"을 뜻하지는 않는다.**
 
-1. **수정됨:** `COLUMN.CONCAT`/`ADD_COLUMN` 같은 생성 액션의 `TAGS` fallback과
+1. `COLUMN.CONCAT`/`ADD_COLUMN` 같은 생성 액션은 `TAGS` fallback과
    `ADD_COLUMN TEMPLATE = "{tag:ITEM}:{tag:RESULT}"` 형태의 태그 치환을 지원한다.
    `run_all_v2.py`는 Q02 생성 컬럼 태그까지 검증한다.
-2. **개선됨:** 분석 결과도 `OperationOutput.dataset`과 의미 태그를 갖는다. `평균`,
+2. 분석 결과도 `OperationOutput.dataset`과 의미 태그를 갖는다. `평균`,
    `중앙값`, `P97_5`, ROC `auc/sensitivity/specificity` 같은 컬럼을 태그로 다시 찾을 수 있다.
-   남은 과제는 표시명과 stable field id를 더 명확히 분리하는 것이다.
-3. **개선됨:** PIVOT 계열은 출력 META에 원본 출처와 일부 컨텍스트를 보존한다. Q06 wide의
+   표시명과 stable field id는 명확히 분리되어 있지 않다.
+3. PIVOT 계열은 출력 META에 원본 출처와 일부 컨텍스트를 보존한다. Q06 wide의
    각 항목 컬럼은 `PIVOT_CONTEXT`에 `UNIT/REF_LOW/REF_HIGH`를 저장하며,
    `ABNORMAL_FLAG`는 이 메타만으로 wide 결과 컬럼별 `H/L/N` 플래그를 만든다.
-4. **남은 한계:** 플러그인 다중 RESULT 반복이 전역 계약으로 보장되지는 않는다. `ABNORMAL_FLAG`는
-   `PIVOT_CONTEXT`가 있는 wide RESULT를 반복 처리하지만, 다른 분석 플러그인은 아직 첫 RESULT 중심이다.
-5. **개선됨:** `COLUMN = "tag:ID"`처럼 단일 컬럼 선택자가 여러 컬럼과 매칭되면 이제 에러가 나며,
+4. 플러그인 다중 RESULT 반복이 전역 계약으로 보장되지는 않는다. `ABNORMAL_FLAG`는
+   `PIVOT_CONTEXT`가 있는 wide RESULT를 반복 처리하지만, 다른 분석 플러그인은 첫 RESULT 중심이다.
+5. `COLUMN = "tag:ID"`처럼 단일 컬럼 선택자가 여러 컬럼과 매칭되면 에러가 나며,
    `TAGS = ["ID"]`처럼 다중 선택 문법은 여러 컬럼을 계속 선택한다.

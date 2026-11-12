@@ -3,10 +3,12 @@ from __future__ import annotations
 from copy import deepcopy
 import csv
 from dataclasses import dataclass
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 import re
 from typing import Any
+from xml.etree import ElementTree
+import zipfile
 
 import openpyxl
 import pandas as pd
@@ -20,6 +22,7 @@ from .models import TameDataset, merged_column_specs
 from .sex import standardize_sex_dataset
 from .tag_placement import dataset_with_tags_in_headers, dataset_with_tags_in_meta
 from .tags import merge_tags
+from .text_encoding import read_utf8
 from .toml_compat import dumps as dumps_toml
 from .toml_compat import loads as loads_toml
 
@@ -27,6 +30,7 @@ from .toml_compat import loads as loads_toml
 SECTION_NAMES = ("SCHEMA", "JOB", "META", "DATA")
 CONTROL_SECTION_NAMES = ("SCHEMA", "JOB", "META")
 SECTION_RE_TEMPLATE = r"<\s*{name}\s*>(.*?)<\s*/\s*{name}\s*>"
+SECTION_MARKER_RE = re.compile(r"<\s*(/?)\s*(SCHEMA|JOB|META|DATA)\s*>", re.IGNORECASE)
 DATA_SHEET_RE = re.compile(r"^DATA(?:_(\d+))?$", re.IGNORECASE)
 CONTROL_SHEETS = {"META", "SCHEMA", "JOB"}
 
@@ -80,9 +84,9 @@ def write_tame(
         marker = re.compile(r"<\s*/?\s*(?:SCHEMA|JOB|META|DATA)\s*>", re.IGNORECASE)
         if any(marker.search(text) for text in [data_text, dumps_toml(dataset.meta), dumps_toml(dataset.schema), dumps_toml(dataset.job)]):
             raise ValueError("Integrated content contains reserved TAME section markers; use .xlsx or review the source declaration")
-    sections.append(f"<DATA>\n{data_text}\n</DATA>")
+    sections.append(("DATA", data_text))
 
-    path.write_text("\n".join(sections) + "\n", encoding="utf-8")
+    path.write_text(tame_file_text(sections), encoding="utf-8")
 
 
 def write_meta_tame(path: str | Path, dataset: TameDataset, *, include_schema: bool = True, include_job: bool = True) -> None:
@@ -94,13 +98,13 @@ def write_meta_tame(path: str | Path, dataset: TameDataset, *, include_schema: b
         include_job=include_job,
         meta_text=dumps_toml(meta),
     )
-    path.write_text("\n".join(sections) + "\n", encoding="utf-8")
+    path.write_text(tame_file_text(sections), encoding="utf-8")
 
 
 def write_data_tame(path: str | Path, dataset: TameDataset) -> None:
     path = Path(path)
     dataset = standardize_sex_dataset(dataset)
-    path.write_text(f"<DATA>\n{_write_tsv(dataset)}\n</DATA>\n", encoding="utf-8")
+    path.write_text(tame_file_text([("DATA", _write_tsv(dataset))]), encoding="utf-8")
 
 
 def import_xlsx_into_tame(template: TameDataset, xlsx_path: str | Path) -> TameDataset:
@@ -124,7 +128,7 @@ def read_xlsx(
     meta_path: str | Path | None = None,
     source_column_name: str | None = None,
 ) -> TameDataset:
-    workbook = openpyxl.load_workbook(path, data_only=True)
+    workbook = load_workbook_values(path)
     meta_text = _sheet_text(workbook, "META")
     schema_text = _sheet_text(workbook, "SCHEMA")
     job_text = _sheet_text(workbook, "JOB")
@@ -141,6 +145,7 @@ def read_xlsx(
     data_sheet_names = _data_sheet_names(workbook)
     if not data_sheet_names:
         data_sheet_names = [workbook.active.title]
+    refuse_unevaluated_formulas(path, [*data_sheet_names, *(name for name in workbook.sheetnames if name.upper() in CONTROL_SHEETS)])
 
     datasets = [
         _sheet_dataset(
@@ -256,11 +261,94 @@ def write_xlsx(
     workbook.save(path)
 
 
-def _extract_section(text: str, name: str) -> str | None:
-    match = re.search(SECTION_RE_TEMPLATE.format(name=name), text, flags=re.DOTALL | re.IGNORECASE)
-    if not match:
-        return None
-    return match.group(1).strip()
+def split_tame_text(text: str, *, source: str = "") -> dict[str, str]:
+    """The sections of .tame text. Every read goes through here, and the rules are always checked.
+
+    The section markers are reserved in the whole text, values included: each may appear once,
+    a section closes before the next one opens, and only blank lines stand outside the sections.
+    A marker inside a value would end its section early and the rest of the file would be dropped
+    without a word, so text that can be read in two ways is refused rather than guessed at.
+    """
+    where = f"{source}: " if source else ""
+    text = text.lstrip(chr(0xFEFF))    # a byte-order mark that came along with the text
+    found = [(match.start(), match.end(), bool(match.group(1)), match.group(2).upper()) for match in SECTION_MARKER_RE.finditer(text)]
+    if not found:
+        return {}
+
+    def line(position: int) -> int:
+        return text.count("\n", 0, position) + 1
+
+    def shown(closing: bool, name: str) -> str:
+        return f"<{'/' if closing else ''}{name}>"
+
+    def outside(start: int, end: int) -> None:
+        between = text[start:end]
+        if between.strip():
+            first = start + len(between) - len(between.lstrip())
+            raise TameFormatError(
+                f"{where}text outside the sections at line {line(first)}: {between.strip()[:60]!r}. "
+                "Everything in a .tame file belongs to a section; a section marker inside a value ends the section early.")
+
+    lines_of: dict[tuple[bool, str], list[int]] = {}
+    for start, _, closing, name in found:
+        lines_of.setdefault((closing, name), []).append(line(start))
+    for (closing, name), lines in lines_of.items():
+        if len(lines) > 1:
+            raise TameFormatError(
+                f"{where}{shown(closing, name)} appears {len(lines)} times (lines {', '.join(str(number) for number in lines)}). "
+                "Each section marker appears once in a .tame file, and a value cannot contain one.")
+
+    bodies: dict[str, str] = {}
+    opened: tuple[str, int, int] | None = None      # name, where its body starts, line of the marker
+    cursor = 0
+    for start, end, closing, name in found:
+        if opened is None:
+            outside(cursor, start)
+            if closing:
+                raise TameFormatError(f"{where}{shown(True, name)} at line {line(start)} has no {shown(False, name)} before it.")
+            opened = (name, end, line(start))
+        elif not closing or name != opened[0]:
+            raise TameFormatError(
+                f"{where}{shown(False, opened[0])} (line {opened[2]}) is not closed before {shown(closing, name)} at line {line(start)}.")
+        else:
+            bodies[name] = text[opened[1]:start]
+            opened, cursor = None, end
+    if opened is not None:
+        raise TameFormatError(f"{where}{shown(False, opened[0])} (line {opened[2]}) is never closed.")
+    outside(cursor, len(text))
+    return {name: _data_body(body) if name == "DATA" else body.strip() for name, body in bodies.items()}
+
+
+def _data_body(body: str) -> str:
+    """DATA as it was written: the blank lines next to the markers go, the cells keep their blanks."""
+    lines = body.split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
+def tame_file_text(sections: list[tuple[str, str]]) -> str:
+    """The text of a .tame file for these (name, body) sections, checked before anything is written.
+
+    What is written has to read back as the same sections. A value that holds a section marker,
+    or a DATA body that would lose a line, is refused here instead of producing a file that
+    opens with fewer rows than were saved.
+    """
+    text = "\n".join(f"<{name}>\n{body}\n</{name}>" for name, body in sections) + "\n"
+    try:
+        back = split_tame_text(text)
+    except TameFormatError as error:
+        raise TameFormatError(
+            "This content cannot be saved as .tame: a value or a META text contains a TAME section marker. "
+            f"{error} Save it as .xlsx, or change that text.") from error
+    for name, body in sections:
+        if back.get(name) != (body if name == "DATA" else body.strip()):
+            raise TameFormatError(
+                f"This content cannot be saved as .tame without loss: {name} would not read back as written "
+                "(a blank first or last line). Save it as .xlsx.")
+    return text
 
 
 def _path_kind(path: str | Path) -> str:
@@ -283,13 +371,13 @@ def _read_tame_sections(
     allow_implicit_data: bool = False,
     allow_implicit_meta: bool = False,
 ) -> dict[str, str]:
-    text = Path(path).read_text(encoding="utf-8")
-    raw_sections = {name: value for name in SECTION_NAMES if (value := _extract_section(text, name)) is not None}
+    text = read_utf8(path)             # UTF-8 or nothing: another encoding is refused with what the bytes look like
+    raw_sections = split_tame_text(text, source=str(path))
     if raw_sections:
         return raw_sections
     stripped = text.strip()
     if allow_implicit_data and stripped:
-        return {"DATA": stripped}
+        return {"DATA": _data_body(text)}
     if allow_implicit_meta and stripped:
         return {"META": stripped}
     return {}
@@ -310,7 +398,8 @@ def _bundle_from_raw_sections(raw_sections: dict[str, str]) -> ControlBundle:
 def _load_control_bundle(path: str | Path) -> ControlBundle:
     kind = _path_kind(path)
     if kind == "xlsx":
-        workbook = openpyxl.load_workbook(path, data_only=True)
+        workbook = load_workbook_values(path)
+        refuse_unevaluated_formulas(path, [name for name in workbook.sheetnames if name.upper() in CONTROL_SHEETS])
         return _bundle_from_raw_sections(
             {
                 key: value
@@ -421,21 +510,18 @@ def _control_sections(
     include_schema: bool = True,
     include_job: bool = True,
     meta_text: str | None = None,
-) -> list[str]:
-    sections: list[str] = []
+) -> list[tuple[str, str]]:
+    """The control sections as (name, body), in file order, for tame_file_text."""
+    sections: list[tuple[str, str]] = []
     if include_schema and (dataset.raw_sections.get("SCHEMA") or dataset.schema):
         schema_text = dataset.raw_sections.get("SCHEMA") or dumps_toml(dataset.schema)
-        sections.append(_wrapped_section("SCHEMA", schema_text))
+        sections.append(("SCHEMA", schema_text.rstrip()))
     if include_job and (dataset.raw_sections.get("JOB") or dataset.job):
         job_text = dataset.raw_sections.get("JOB") or dumps_toml(dataset.job)
-        sections.append(_wrapped_section("JOB", job_text))
+        sections.append(("JOB", job_text.rstrip()))
     resolved_meta_text = meta_text if meta_text is not None else dumps_toml(dataset.meta)
-    sections.append(_wrapped_section("META", resolved_meta_text))
+    sections.append(("META", resolved_meta_text.rstrip()))
     return sections
-
-
-def _wrapped_section(name: str, text: str) -> str:
-    return f"<{name}>\n{text.rstrip()}\n</{name}>"
 
 
 def _dataset_for_tag_storage(dataset: TameDataset, tag_storage: str) -> TameDataset:
@@ -478,7 +564,7 @@ def _dataset_from_parts(*, data_text: str, controls: ControlBundle, source_path:
     )
     df.columns = [column.name for column in columns]
     raw_sections = dict(controls.raw_sections)
-    raw_sections["DATA"] = data_text.strip()
+    raw_sections["DATA"] = data_text
     return TameDataset(
         df=df,
         columns=columns,
@@ -543,7 +629,7 @@ def _validate_import_headers(template: TameDataset, incoming: TameDataset) -> No
 
 
 def _read_xlsx_with_controls(path: str | Path, controls: ControlBundle) -> TameDataset:
-    workbook = openpyxl.load_workbook(path, data_only=True)
+    workbook = load_workbook_values(path)
     meta = deepcopy(controls.meta)
     schema = deepcopy(controls.schema)
     job = deepcopy(controls.job)
@@ -551,6 +637,7 @@ def _read_xlsx_with_controls(path: str | Path, controls: ControlBundle) -> TameD
     data_sheet_names = _data_sheet_names(workbook)
     if not data_sheet_names:
         data_sheet_names = [workbook.active.title]
+    refuse_unevaluated_formulas(path, data_sheet_names)
 
     datasets = [
         _sheet_dataset(
@@ -696,7 +783,7 @@ def _write_text_sheet(workbook: openpyxl.Workbook, sheet_name: str, text: str) -
     for row_idx, line in enumerate(text.splitlines(), start=1):
         if len(line.encode('utf-16-le')) // 2 > 32767:
             raise ValueError(f'{sheet_name} contains a record exceeding Excel cell limits; save as .tame to preserve the full history')
-        sheet.cell(row=row_idx, column=1, value=line)
+        _text_stays_text(sheet.cell(row=row_idx, column=1, value=line))
 
 
 def _sheet_rows(sheet: openpyxl.worksheet.worksheet.Worksheet, cell_settings: dict[str, Any]) -> list[list[Any]]:
@@ -770,19 +857,116 @@ def _augment_multisheet_meta(meta: dict[str, Any], sheet_names: list[str], *, so
 
 def _write_data_sheet(sheet: openpyxl.worksheet.worksheet.Worksheet, dataset: TameDataset, *, include_tags: bool = True) -> None:
     headers = dataset.tagged_headers() if include_tags else [column.name for column in dataset.columns]
-    integrated = ci_get(dataset.meta, "INTEGRATION_RESULT", None) is not None
     for col_idx, header in enumerate(headers, start=1):
-        cell = sheet.cell(row=1, column=col_idx, value=header)
-        if integrated:
-            cell.data_type = "s"
+        _text_stays_text(sheet.cell(row=1, column=col_idx, value=header))
 
     cfg = token_config(_cell_settings(dataset.meta))
     for row_idx, row in enumerate(dataset.df.itertuples(index=False), start=2):
         for col_idx, value in enumerate(row, start=1):
-            cell = sheet.cell(row=row_idx, column=col_idx, value=_xlsx_cell_value(value, cfg))
-            if integrated and isinstance(cell.value, str):
-                # Comparator '=' and source identifiers are data, never Excel formulas.
-                cell.data_type = "s"
+            _text_stays_text(sheet.cell(row=row_idx, column=col_idx, value=_xlsx_cell_value(value, cfg)))
+
+
+def load_workbook_values(path: Any) -> openpyxl.Workbook:
+    """The workbook with its stored values, read completely, with no handle left on the file.
+
+    Some openpyxl versions keep the file open after loading. On Windows the file then cannot be replaced or
+    removed while the program runs, which matters for a web server that reads an upload and for temporary files.
+    """
+    if hasattr(path, "read"):
+        return openpyxl.load_workbook(path, data_only=True)
+    with open(path, "rb") as stream:
+        return openpyxl.load_workbook(stream, data_only=True)
+
+
+def _text_stays_text(cell: Any) -> None:
+    """Data is never an Excel formula: a comparator result such as "=5" is text, and so is "=SUM(A1)".
+
+    openpyxl stores a string that starts with "=" as a formula. Read back as values it would be
+    empty, and opened in Excel it would be calculated.
+    """
+    if isinstance(cell.value, str) and cell.value.startswith("="):
+        cell.data_type = "s"
+
+
+_SHEET_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def unevaluated_formulas(path: str | Path, sheet_names: list[str] | None = None, *, limit: int = 5) -> list[str]:
+    """Cells that hold a formula but no stored result, as "sheet!cell" (at most ``limit``).
+
+    tametools reads the values a workbook stores. A formula that was never calculated (a file
+    written by a program, or by tametools before 0.5 from text such as "=5") stores none, and
+    its cell would silently read as empty. A formula whose stored result is empty text is fine.
+    """
+    found: list[str] = []
+    wanted = None if sheet_names is None else set(sheet_names)
+    try:
+        archive = zipfile.ZipFile(path)
+    except (zipfile.BadZipFile, OSError):
+        return found                      # not a workbook we can look into; the loader reports what is wrong
+    with archive:
+        titles: dict[str, str] = {}
+        try:
+            targets = {item.get("Id"): item.get("Target", "") for item in ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))}
+            for sheet in ElementTree.fromstring(archive.read("xl/workbook.xml")).iter(_SHEET_NS + "sheet"):
+                target = targets.get(sheet.get(_REL_NS + "id"), "")
+                titles[target.lstrip("/") if target.startswith("/") else "xl/" + target] = sheet.get("name", "")
+        except (KeyError, ElementTree.ParseError):
+            pass
+        for part in archive.namelist():
+            if not re.fullmatch(r"xl/worksheets/[^/]+\.xml", part):
+                continue
+            title = titles.get(part, part)
+            if wanted is not None and title not in wanted:
+                continue
+            # Every sheet that is read is parsed. Looking for a formula in the raw bytes first would be quicker, but
+            # the bytes depend on how the part is stored (UTF-16, a namespace prefix in any script), and a miss
+            # there is a value silently read as empty.
+            for reference in _formula_cells_without_result(archive.read(part)):
+                found.append(f"{title}!{reference}")
+                if len(found) >= limit:
+                    return found
+    return found
+
+
+def _formula_cells_without_result(xml: bytes):
+    """References of the cells in one worksheet part that hold a formula and no stored result.
+
+    The part is read as XML, so it does not matter how the writer spelled it: with or without a namespace prefix,
+    with either kind of quote. Excel stores the result in the value element next to the formula; an empty value is
+    a result only for text (cell type "str"). A program that writes formulas without calculating them leaves the
+    value out or empty.
+    """
+    def local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    try:
+        for _, element in ElementTree.iterparse(BytesIO(xml), events=("end",)):
+            name = local(element.tag)
+            if name == "c":
+                formula = next((child for child in element if local(child.tag) == "f"), None)
+                if formula is not None:
+                    value = next((child for child in element if local(child.tag) == "v"), None)
+                    stored = value is not None and (bool(value.text) or element.get("t") == "str")
+                    if not stored:
+                        yield element.get("r", "?")
+                element.clear()
+            elif name == "row":
+                element.clear()        # keep memory flat on large sheets
+    except ElementTree.ParseError:
+        return                         # not a part we can read; the workbook loader reports what is wrong
+
+
+def refuse_unevaluated_formulas(path: str | Path, sheet_names: list[str] | None = None) -> None:
+    """Stop before a workbook is read whose formulas have no stored results (see unevaluated_formulas)."""
+    cells = unevaluated_formulas(path, sheet_names)
+    if cells:
+        raise TameFormatError(
+            f"{path}: {', '.join(cells)}{' and possibly more' if len(cells) >= 5 else ''} "
+            f"hold{'s' if len(cells) == 1 else ''} a formula without a stored result, so the value cannot be read. "
+            "Open the workbook in Excel and save it so that the results are stored, or replace the formulas by their values. "
+            "(Text that starts with '=' must be stored as text, not as a formula.)")
 
 
 def _sheet_groups(dataset: TameDataset, sheet_column_name: str) -> list[tuple[str, TameDataset]]:

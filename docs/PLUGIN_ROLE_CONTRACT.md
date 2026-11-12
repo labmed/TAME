@@ -1,7 +1,5 @@
 # 플러그인 Role Contract
 
-검토일: 2026-06-24
-
 플러그인 전체 작성법, 차트 계약, 보고서 플러그인 템플릿은 `docs/PLUGIN_AUTHOR_GUIDE.md`를 함께 본다.
 
 임상데이터에서는 같은 파일 안에 결과 컬럼이 하나일 수도 있고, `AST`, `ALT`, `Cr`처럼 여러 결과가
@@ -61,7 +59,7 @@ wide 형태로 들어올 수도 있다. 초보 사용자가 컬럼명을 직접 
 python3 -m unittest discover -s tametools/tests -p test_multi_result_contract.py
 ```
 
-## 남은 과제
+## 제한과 확장 방향
 
 - `CORRELATION`은 wide numeric matrix 자체가 분석 대상이므로 현재 별도 경로를 유지한다.
 - `AUTOVERIFICATION`은 wide RESULT별 기본 판정, `PIVOT_CONTEXT` 참고치, critical/delta rule을

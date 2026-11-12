@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .tametools_bridge import (
+    PluginAnswersError,
     StoredUpload,
     anonymize_payload,
     apply_action_pipeline_payload,
@@ -38,10 +39,13 @@ from .tametools_bridge import (
     is_tame_workbook,
     load_tame_payload,
     load_tame_workbook_payload,
+    plugin_form_payload,
+    plugin_view_payload,
     reference_interval_payload,
     refresh_payload,
     run_meta_analysis_payload,
     run_web_plugin_payload,
+    select_plugins_payload,
     validation_review_payload,
 )
 
@@ -287,7 +291,7 @@ def preview_sex_normalization(request: DatasetFixRequest):
 
 def _analysis_table(report_id, name):
     import re, json
-    if not re.fullmatch(r'[A-Za-z0-9_-]{24}', report_id) or not re.fullmatch(r'[a-z_]+', name):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{24}', report_id) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]*', name):
         raise HTTPException(404, '감사표를 찾을 수 없습니다.')
     folder = store.path/'analysis_reports'/report_id
     index_file = folder/'table_index.json'
@@ -319,7 +323,7 @@ def analysis_table_csv(report_id: str, name: str):
 @app.get('/api/analysis-reports/{report_id}/{filename}')
 def analysis_report(report_id: str, filename: str):
     import re
-    if not re.fullmatch(r'[A-Za-z0-9_-]{24}',report_id) or filename not in {'reference_interval_report_ko.docx','reference_interval_report.zip'}:
+    if not re.fullmatch(r'[A-Za-z0-9_-]{24}',report_id) or filename not in {'reference_interval_report_ko.docx','reference_interval_report.zip','report.html','report.docx','report.zip'}:
         raise HTTPException(404,'보고서를 찾을 수 없습니다.')
     path=store.path/'analysis_reports'/report_id/filename
     if not path.is_file():raise HTTPException(404,'보고서를 찾을 수 없습니다. 웹앱 재시작 후에는 분석을 다시 실행해 주세요.')
@@ -328,10 +332,12 @@ def analysis_report(report_id: str, filename: str):
 
 @app.get('/api/examples/{name}')
 def example_dataset(name: str):
-    if name != 'kenya':raise HTTPException(404,'예제 자료를 찾을 수 없습니다.')
-    path=Path(__file__).resolve().parents[1]/'examples/kenya_reference.tame'
+    examples = {'kenya':('kenya_reference.tame','Kenya_reference_533.tame'), 'qc':('qc_workflow.tame','QC_workflow_example.tame')}
+    if name not in examples:raise HTTPException(404,'예제 자료를 찾을 수 없습니다.')
+    source,filename = examples[name]
+    path=Path(__file__).resolve().parents[1]/'examples'/source
     if not path.is_file():raise HTTPException(404,'예제 파일이 누락되었습니다. examples가 포함된 배포본을 확인해 주세요.')
-    return load_tame_payload(path,filename='Kenya_reference_533.tame')
+    return load_tame_payload(path,filename=filename)
 
 
 @app.post("/api/datasets/validate")
@@ -398,10 +404,39 @@ def create_plugin(request: PluginRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/plugins/run")
-def run_plugin(request: PluginRequest) -> dict[str, Any]:
+@app.post("/api/plugins/selection")
+def select_plugins(request: PluginRequest) -> dict[str, Any]:
+    try:
+        return select_plugins_payload(request.dataset, request.options)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/plugins/form")
+def plugin_form(request: PluginRequest) -> dict[str, Any]:
+    """The questions the plugin declared (register_plugin form=...), for the browser to draw; ``form`` is null without any."""
+    try:
+        return plugin_form_payload(request.dataset, request.options, store.path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/plugins/view")
+def plugin_result_view(request: PluginRequest) -> dict[str, Any]:
+    """The screen a plugin registered for this result (register_view): {name, title, html}, html one complete document."""
+    try:
+        return plugin_view_payload(request.dataset, request.options, store.path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/plugins/run", response_model=None)
+def run_plugin(request: PluginRequest) -> dict[str, Any] | JSONResponse:
     try:
         return run_web_plugin_payload(request.dataset, request.options, store.path)
+    except PluginAnswersError as exc:
+        # The form was not filled in acceptably: nothing ran, so there is no failed run to record. Each question is named.
+        return JSONResponse(status_code=400, content={"detail": str(exc), "fieldErrors": exc.fields})
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -70,10 +70,11 @@ def parse_serialized_cell(value: Any, mapping: CellTokenSource = None) -> Any:
         return None
 
     cfg = token_config(mapping)
-    if value.startswith(cfg.escape_prefix):
-        unescaped = value[len(cfg.escape_prefix) :]
-        if is_reserved_token(unescaped, cfg):
-            return unescaped
+    # One escape prefix in front of a reserved token marks literal text, and so does one more in
+    # front of text that already looks escaped: "\<<NULL>>" is the text "<<NULL>>", "\\<<NULL>>"
+    # the text "\<<NULL>>". Reading takes exactly the one prefix that writing added.
+    if cfg.escape_prefix and value.startswith(cfg.escape_prefix) and is_reserved_token(_without_escapes(value, cfg), cfg):
+        return value[len(cfg.escape_prefix) :]
 
     if value == cfg.absent_token:
         return None
@@ -100,9 +101,17 @@ def serialize_cell(value: Any, mapping: CellTokenSource = None, *, for_excel: bo
         return cfg.empty_token
     if state == STATE_WS:
         return f"{cfg.ws_token_prefix}{len(str(value))}{cfg.token_suffix}"
-    if isinstance(value, str) and is_reserved_token(value, cfg):
+    if isinstance(value, str) and is_reserved_token(_without_escapes(value, cfg), cfg):
         return f"{cfg.escape_prefix}{value}"
     return value
+
+
+def _without_escapes(text: str, cfg: CellTokenConfig) -> str:
+    """The text with every leading escape prefix removed."""
+    if cfg.escape_prefix:
+        while text.startswith(cfg.escape_prefix):
+            text = text[len(cfg.escape_prefix) :]
+    return text
 
 
 def cell_state(value: Any) -> str:

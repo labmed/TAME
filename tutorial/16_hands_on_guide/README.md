@@ -19,6 +19,3 @@ python3 tutorial/16_hands_on_guide/run_hands_on.py
 
 실행 후 `tutorial/16_hands_on_guide/outputs/execution_log.md`와 여러 결과 `.tame`,
 `10_combined_report.docx`가 생성된다.
-
-제출용 설명 문서는 `docs/실습형_핸즈온_가이드_20260624.md`와
-`docs/실습형_핸즈온_가이드_20260624.docx`에 있다.

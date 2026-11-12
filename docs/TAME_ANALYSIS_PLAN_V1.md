@@ -6,7 +6,7 @@ snapshots are specified in [TAME analysis safety](TAME_ANALYSIS_SAFETY_V1.md).
 The base examples below remain valid. Their sample correlations and percentiles
 remain descriptive; they are not substituted for the new explicit model outputs.
 
-Optional local extension, 2026-09-11. The TSV/TOML container and existing analysis,
+An optional extension. The TSV/TOML container and existing analysis,
 survey and integration contracts remain unchanged. This contract declares routine
 chemistry exploration, not a new statistical estimator or clinical decision rule.
 

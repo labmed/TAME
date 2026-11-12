@@ -44,6 +44,8 @@ if "%NEED_NPM%"=="1" (
   )
 )
 
+rem An offline bundle says which extras its wheelhouse holds; install exactly those.
+if exist "%ROOT%\extras.txt" if exist "%ROOT%\wheelhouse" set /p TAMETOOLS_WEB_EXTRAS=<"%ROOT%\extras.txt"
 if "%TAMETOOLS_WEB_EXTRAS%"=="" (
   set "TAMETOOLS_WEB_EXTRAS=web,report,analysis,nhanes"
 )

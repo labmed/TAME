@@ -15,6 +15,7 @@ import unicodedata
 from zipfile import BadZipFile
 
 from .exceptions import TameError, TameFormatError, TameImportError, TameTagError, TameValidationError
+from .text_encoding import read_standard_input, utf8_standard_streams, write_utf8_to_standard_output
 from .toml_compat import dumps as dumps_toml
 
 
@@ -93,6 +94,7 @@ def _load_runtime() -> None:
 
 
 def main() -> int:
+    utf8_standard_streams()            # files are UTF-8, and so is what passes through a pipe or a redirect
     argv = list(sys.argv[1:])
     debug = "--debug" in argv
     if debug:
@@ -166,6 +168,8 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         topic = argv[1]
         topic_parser = command_parsers.get(topic)
+        if topic_parser is None and _plugin_command(topic, argv) is not None:
+            return _run_plugin_command(_plugin_command(topic, argv), [topic, "--help"])
         if topic_parser is None:
             print(f"Error: unknown help topic: {topic}", file=sys.stderr)
             print("Examples: tametools help review, tametools help analyze", file=sys.stderr)
@@ -178,7 +182,14 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if argv[0] not in command_parsers and not argv[0].startswith("-"):
+        # Not a built-in command: a plugin may provide it (register_command). Plugins are loaded only now, so the
+        # built-in commands start as fast as before.
+        provided = _plugin_command(argv[0], argv)
+        if provided is not None:
+            return _run_plugin_command(provided, argv)
         print(f"Error: unknown command: {argv[0]}", file=sys.stderr)
+        for hint in _plugin_command_hints(argv[0], argv):
+            print(hint, file=sys.stderr)
         print("Run `tametools --help` to see available commands.", file=sys.stderr)
         print("If you are new, run `tametools quickstart` or `tametools examples`.", file=sys.stderr)
         return 2
@@ -206,7 +217,7 @@ def _main(argv: list[str] | None = None) -> int:
         _print_completion(args.shell)
         return 0
     if args.command == "doctor":
-        return _run_doctor(strict=args.strict)
+        return _run_doctor(strict=args.strict, pipe_text=args.pipe_text)
 
     _load_runtime()
 
@@ -241,6 +252,53 @@ def _main(argv: list[str] | None = None) -> int:
                 print('failure_log: ' + path, file=sys.stderr)
 
 
+def _plugin_command(name: str, argv: list[str]):
+    """The command a plugin registered under this name, if any. External plugins count only with --allow-plugins."""
+    from .plugin_base.manager import plugin_commands
+
+    return plugin_commands(allow_external="--allow-plugins" in argv).get(str(name).strip().lower())
+
+
+def _plugin_command_hints(name: str, argv: list[str]) -> list[str]:
+    """Why a command a plugin was expected to provide is not there: its file did not load, or waits for --allow-plugins."""
+    from .plugin_base.manager import plugin_load_errors, unknown_plugin_hints
+
+    hints = [f"hint: a plugin file was not loaded: {error}" for error in plugin_load_errors()]
+    if "--allow-plugins" not in argv:
+        hints += ["hint: " + hint for hint in unknown_plugin_hints("", None) if hint.startswith("plugins outside")]
+    return hints
+
+
+def _run_plugin_command(spec, argv: list[str]) -> int:
+    """Run a command that a plugin added to the command line, with the same audit scope as the built-in commands."""
+    global _CURRENT_CLI_COMMAND_TEXT, _CURRENT_CLI_OPERATION, _CURRENT_CLI_SOURCE_PATHS, _CURRENT_CLI_LOG_LEVEL
+    rest = [item for item in argv[1:] if item != "--allow-plugins"]     # the switch belongs to tametools, not to the command
+    parser = _TameArgumentParser(prog=f"tametools {spec.name}", description=spec.description or None,
+                                 epilog=spec.epilog or None, formatter_class=argparse.RawDescriptionHelpFormatter)
+    if spec.configure is not None:
+        spec.configure(parser)
+    if any(item in {"-h", "--help"} for item in rest):
+        parser.print_help()
+        return 0
+    args = parser.parse_args(rest)
+    args.command = spec.name
+    args.allow_plugins = "--allow-plugins" in argv[1:]
+    _CURRENT_CLI_COMMAND_TEXT = "tametools " + " ".join(f'"{arg}"' if (" " in arg or "\t" in arg) else arg for arg in argv)
+    _CURRENT_CLI_OPERATION = f"CLI:{spec.name.upper()}"
+    _CURRENT_CLI_SOURCE_PATHS = _command_source_paths(args)
+    _CURRENT_CLI_LOG_LEVEL = _normalize_log_level(getattr(args, "log_level", "simple"))
+    _load_runtime()
+    from .provenance import run_scope, operation_scope
+
+    with run_scope(failure_directory=Path.cwd() / 'tametools_failed_runs') as run:
+        try:
+            with operation_scope(_CURRENT_CLI_OPERATION, parameters={'command': _CURRENT_CLI_COMMAND_TEXT, 'argv': list(argv)}):
+                return int(spec.run(args) or 0)
+        finally:
+            for path in run.failure_files:
+                print('failure_log: ' + path, file=sys.stderr)
+
+
 def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.ArgumentParser]]:
     parser = _TameArgumentParser(
         prog="tametools",
@@ -269,6 +327,13 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
 
     def add_json_arg(sub: argparse.ArgumentParser) -> None:
         sub.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of human text.")
+
+    def add_dialog_arg(sub: argparse.ArgumentParser, what: str) -> None:
+        choice = sub.add_mutually_exclusive_group()
+        choice.add_argument("--dialog", dest="dialog", action="store_true", default=None,
+                            help=f"Ask for {what} in a dialog window (prompts in the terminal where no window can open).")
+        choice.add_argument("--no-dialog", dest="dialog", action="store_false",
+                            help="Never ask. Default: ask only when something required is missing and a person is at the terminal.")
 
     def add_view_arg(sub: argparse.ArgumentParser) -> None:
         sub.add_argument("--view", choices=["compact", "full"], default="compact", help="Human table width. Default: compact.")
@@ -316,6 +381,9 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
         description="Check Python version, installed dependencies, and optional report/web/statistics extras.",
     )
     doctor_parser.add_argument("--strict", action="store_true", help="Return exit code 1 when optional extras are missing.")
+    doctor_parser.add_argument("--pipe-text", metavar="ENCODING", help='How printed text is encoded when it is piped or redirected, saved for this user: '
+                               '"utf-8" (default), "console" (the console code page, as Windows PowerShell 5.1 pipelines expect) or a code page by name, such as cp949. '
+                               'TAME text on "-" and --json output are always UTF-8.')
 
     simple_commands = {
         "info": "Show dataset size, META sections, and available works/actions.",
@@ -408,6 +476,9 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     add_meta_arg(validate_parser)
     add_json_arg(validate_parser)
     validate_parser.add_argument("--max-issues", type=int, default=20, help="Maximum validation issues to print.")
+    validate_parser.add_argument("--fix-encoding", action="store_true", help="For a .tame text file in another encoding: write a UTF-8 copy to --output, then validate the copy.")
+    validate_parser.add_argument("--from", dest="source_encoding", metavar="ENCODING", help="With --fix-encoding: the encoding the file is in now, e.g. cp949. It is never guessed.")
+    validate_parser.add_argument("--output", help="With --fix-encoding: the UTF-8 file to write. The original is kept.")
     validate_parser.add_argument("--fail-on-issues", action="store_true", help="Return exit code 1 when validation issues are found.")
     validate_parser.add_argument("--fail-on", choices=["none", "error", "warning", "info", "any"], default="none", help="Severity threshold for non-zero exit. Use with or without --fail-on-issues.")
 
@@ -461,6 +532,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     add_log_level_arg(analyze_parser)
     analyze_parser.add_argument("--allow-plugins", action="store_true", help="Named-plugin mode only: allow trusted external Python plugins.")
     analyze_parser.add_argument("--option", action="append", default=[], metavar="KEY=VALUE", help="Named-plugin mode only: repeatable plugin options.")
+    add_dialog_arg(analyze_parser, "the settings the named plugin declares")
     analyze_parser.add_argument("--plan", help="Optional standalone TOML plan overriding embedded ANALYSIS_PLAN; the executed plan is retained in the report manifest.")
     analyze_parser.add_argument("--output-dir", help="New directory for aggregate CSVs, charts and a reproducibility manifest.")
     analyze_parser.add_argument("--docx", action="store_true", help="Also write a Word report; requires --output-dir.")
@@ -558,6 +630,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
         metavar="KEY=VALUE",
         help="Plugin option as KEY=VALUE (repeatable). Overrides META options, e.g. --option MODE=TAT_BY_TEST.",
     )
+    add_dialog_arg(run_plugin_parser, "the settings the plugin declares")
+    run_plugin_parser.add_argument("--view", metavar="HTML", help="Also write the screen the plugin registers for its result (one self-contained HTML file).")
 
     check_excel_parser = add_command(
         "check-excel",
@@ -604,6 +678,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     init_parser.add_argument("--output", required=True, help="Output .tame file.")
     init_parser.add_argument("--sheet", help="Worksheet name to use for a multi-sheet xlsx.")
     init_parser.add_argument("--definitions", help="Reviewed TOML definitions generated from the init review template.")
+    init_parser.add_argument("--encoding", help="Encoding of a .csv/.tsv INPUT that is not UTF-8, e.g. cp949. It is never guessed; the .tame is written as UTF-8.")
     init_mode = init_parser.add_mutually_exclusive_group()
     init_mode.add_argument("--interactive", dest="interactive", action="store_true", help="Review all SEX/AGE values and configure normalization and age groups now.")
     init_mode.add_argument("--no-interactive", dest="interactive", action="store_false", help="Never prompt; apply --definitions or report unresolved meanings.")
@@ -739,11 +814,15 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     integrate_parser.add_argument("--preview", action="store_true", help="Validate and show conversion plan without writing output.")
     add_log_level_arg(integrate_parser)
 
-    export_parser = add_command("export", help="Export data and metadata to external formats.", description="Export data and metadata to CSV/TSV/JSONL/SQL/Parquet/Feather/R bundle formats.")
+    export_parser = add_command("export", help="Export data and metadata to external formats.",
+        description="Export data and metadata to CSV/TSV/JSONL/SQL/Parquet/Feather/R bundle formats, or to a format a plugin added "
+                    "(`tametools plugins` lists those).")
     add_input_arg(export_parser)
     export_parser.add_argument("--meta", help="Optional external META .tame file.")
     export_parser.add_argument("output", metavar="OUTPUT", help="Output file or directory.")
-    export_parser.add_argument("--format", choices=_EXPORT_FORMATS, default=None, help="Output format. Inferred from suffix when omitted.")
+    export_parser.add_argument("--format", default=None, metavar="FORMAT",
+        help="Output format: " + ", ".join(_EXPORT_FORMATS) + ", or one added by a plugin. Inferred from suffix when omitted.")
+    export_parser.add_argument("--allow-plugins", action="store_true", help="Also use export formats of plugins outside the trusted plugin folders.")
     export_parser.add_argument("--bundle-data-format", choices=_BUNDLE_DATA_FORMATS, default="csv", help="Data format inside r_bundle output.")
     export_parser.add_argument("--no-schema", action="store_true", help="Do not write schema metadata in bundle outputs.")
     export_parser.add_argument("--no-job", action="store_true", help="Do not write job metadata in bundle outputs.")
@@ -765,6 +844,32 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, argparse.Argumen
     import_xlsx_parser.add_argument("xlsx", help="Input .xlsx/.xlsm workbook.")
     import_xlsx_parser.add_argument("--output", required=True, help="Output imported dataset.")
     add_log_level_arg(import_xlsx_parser)
+
+    sync_parser = add_command(
+        "sync",
+        help="Update one project .tame and its result from a source file that keeps growing.",
+        description=(
+            "Re-read the source declared in META[SYNC], report rows added/modified/removed since the last sync,\n"
+            "re-run META[SYNC].WORK and mark which result rows are new. The project and result files are\n"
+            "updated in place; each sync is recorded in the project (LOG and SYNC_STATE)."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  tametools sync qc.tame                    update the project and result from the source\n"
+            "  tametools sync qc.tame --check            show what would change; write nothing\n"
+            "  tametools sync qc.tame --accept-changes   record modified/removed source rows as revisions\n"
+            "  tametools sync qc.tame --history          list earlier syncs"
+        ),
+    )
+    sync_parser.add_argument("path", metavar="PROJECT", help="Project .tame file with a META[SYNC] section.")
+    sync_parser.add_argument("--source", help="Read this source file instead of META[SYNC].SOURCE (this run only).")
+    sync_parser.add_argument("--check", action="store_true", help="Report changes and results without writing any file.")
+    sync_parser.add_argument("--accept-changes", action="store_true", help="Accept rows that were modified or removed in the source after being synced.")
+    sync_parser.add_argument("--history", action="store_true", help="List the syncs recorded in the project and exit.")
+    sync_parser.add_argument("--max-rows", type=int, default=30, help="Maximum rows to print per list. Default: 30.")
+    add_json_arg(sync_parser)
+    sync_parser.add_argument("--allow-functions", action="store_true", help="Allow embedded Python/R functions declared in META.")
+    sync_parser.add_argument("--allow-plugins", action="store_true", help="Allow external Python plugin modules declared in META.")
 
     return parser, command_parsers
 
@@ -801,8 +906,11 @@ Command groups:
   Analyze/report:    plugins, analyze, eda, ri-plan, evaluate
   Convert/export:    convert/save, export, tags-to-meta, tags-to-header, merge, integrate
   Audit/logs:        logs/log, clear-log, verify
+  Growing files:     sync (one source, one project .tame, one result; updated in place)
   Utilities:         anonymize, sample, split-comparator, harmonize-comparator,
                      extract-images, embed-images, split-tame, attach-meta, import-xlsx
+  From plugins:      plugins add commands of their own, e.g. qc-action and qc-review (records about
+                     rejected QC runs). `tametools plugins` lists them; `tametools help NAME` explains one.
 
 Compatibility notes:
   Existing scripts can keep using review, save, run-plugin, run-action-pipeline,
@@ -890,7 +998,10 @@ Legacy command equivalents:
     )
 
 
-def _run_doctor(*, strict: bool = False) -> int:
+def _run_doctor(*, strict: bool = False, pipe_text: str | None = None) -> int:
+    if pipe_text is not None:
+        from .text_encoding import normalized_pipe_text
+        normalized_pipe_text(pipe_text)        # a value that cannot be used stops here, before anything is printed or saved
     required = [
         ("pandas", "pandas"),
         ("numpy", "numpy"),
@@ -925,6 +1036,8 @@ def _run_doctor(*, strict: bool = False) -> int:
         optional_ok = optional_ok and ok
         print(f"{label}: {'ok' if ok else 'missing'}")
 
+    _doctor_text_section(pipe_text)
+
     if not required_ok:
         print("status: required dependencies missing")
         return 1
@@ -933,6 +1046,36 @@ def _run_doctor(*, strict: bool = False) -> int:
         return 1
     print("status: ok")
     return 0
+
+
+def _doctor_text_section(pipe_text: str | None) -> None:
+    """What encodings are in use, and the one setting that can be changed: text that is piped or redirected."""
+    from .text_encoding import console_encoding, ignored_pipe_text, normalized_pipe_text, pipe_text_setting, save_pipe_text
+
+    print("[text]")
+    if pipe_text is not None:
+        saved = save_pipe_text(pipe_text)
+        print(f"saved: piped text = {normalized_pipe_text(pipe_text)} ({saved})")
+    setting, source = pipe_text_setting()
+    console = console_encoding()
+    print("files and '-' streams: utf-8 (always)")
+    print("--json output: utf-8 (always)")
+    print(f"piped text: {setting}" + (f" -> {console}" if setting == "console" else "") + f" ({source})")
+    for item in ignored_pipe_text():
+        # A value that cannot be used for text is passed over at every start, so this command can always repair it.
+        print(f"ignored: {item} cannot be used for printed text; {setting} applies.")
+        print("         Repair: " + ("correct or remove that variable" if item.startswith("environment variable")
+                                     else "tametools doctor --pipe-text utf-8"))
+    print(f"console code page: {console}")
+    if setting == "console":
+        print("note: printed text that is piped or redirected follows the console code page; characters it lacks print as '?'.")
+        print("      Back to UTF-8: tametools doctor --pipe-text utf-8")
+    elif sys.platform.startswith("win") and console != "utf-8" and setting == "utf-8":
+        print(f"note: Windows PowerShell 5.1 reads piped output in the console code page ({console}), so non-ASCII text can look garbled there.")
+        print("      For one session: [Console]::OutputEncoding = [Text.Encoding]::UTF8")
+        print("      For this user:   tametools doctor --pipe-text console")
+    if sys.platform.startswith("win"):
+        print("note: in Windows PowerShell 5.1, '>' rewrites program output as UTF-16. Save .tame files with an output file argument.")
 
 
 def _module_available(module: str) -> bool:
@@ -1068,12 +1211,23 @@ def _run_runtime_command(args) -> int:
         return 0
 
     if args.command == "validate":
+        if args.fix_encoding:
+            if not _write_utf8_copy(args):
+                return 0                             # a sidecar was converted; it is validated together with its data file
+            args.path = args.output                  # the report below is about the converted file
+        elif args.source_encoding or args.output:
+            raise ValueError("--from and --output belong to --fix-encoding")
         dataset = _load_dataset(args.path, meta_path=args.meta)
         result = validate_dataset(dataset)
         if args.json:
             _print_json(_validation_payload(result, max_issues=args.max_issues))
         else:
             _print_validation_result(result, max_issues=args.max_issues)
+            # A settings section that is one letter off is read by nobody, and the defaults apply without a word.
+            from .meta_sections import section_typos
+            from .plugin_base.manager import declared_plugin_names
+            for note in section_typos(dataset.meta, declared_plugin_names()):
+                print("warning: " + note)
         if args.fail_on_issues:
             return 1 if result.issues else 0
         return 1 if _issues_meet_severity(result.issues, args.fail_on) else 0
@@ -1136,8 +1290,8 @@ def _run_runtime_command(args) -> int:
                 raise ValueError("Do not combine named-plugin and ANALYSIS_PLAN options")
             args.command = "run-plugin"
             return _run_runtime_command(args)
-        if args.output or args.allow_plugins or args.option:
-            raise ValueError("--output, --allow-plugins and --option require a named PLUGIN; use --plan/--output-dir for ANALYSIS_PLAN")
+        if args.output or args.allow_plugins or args.option or args.dialog is not None:
+            raise ValueError("--output, --allow-plugins, --option and --dialog require a named PLUGIN; use --plan/--output-dir for ANALYSIS_PLAN")
         from .planned_analysis import analyze_dataset, write_analysis_report
 
         if args.docx and not args.output_dir:
@@ -1285,6 +1439,18 @@ def _run_runtime_command(args) -> int:
             print(f"error: {exc}")
             return 1
         print(f"work: {result.work_name}")
+        from .chain import unfinished_steps
+        unfinished = unfinished_steps(result)
+        if unfinished:
+            # A step nobody knows ends the work: later steps are not run on data that missed one, and nothing is saved.
+            finished = [str(output.name) for output in result.outputs if output.status == "SUCCEEDED"]
+            print(f"error: work {result.work_name} stopped at '{unfinished[0]}': it is neither a step of tametools nor an available plugin. "
+                  "Nothing was saved.")
+            if finished:
+                print("steps run before it: " + ", ".join(finished))
+            for hint in result.outputs[-1].warnings or []:
+                print("hint: " + hint)
+            return 1
         for output in result.outputs:
             print(f"[{output.name}]")
             if output.message:
@@ -1362,18 +1528,42 @@ def _run_runtime_command(args) -> int:
     if args.command == "plugins":
         meta = _load_dataset(args.path, meta_path=args.meta).meta if args.path else None
         plugins = list_plugins(meta, allow_external=args.allow_plugins)
+        from .plugin_base.selection import plugin_selection_state
+        state = plugin_selection_state(meta, plugins)
+        from .plugin_base.manager import (plugin_commands, plugin_directories, plugin_exporters, plugin_load_errors, plugin_origin,
+                                          unknown_plugin_hints)
         for plugin in plugins:
-            print(f"{plugin.name}: {plugin.description}")
+            if plugin.name in state['effective']:
+                linked = " [dependency/alias]" if state['enabled'] is not None and plugin.name not in state['enabled'] else ""
+                origin = plugin_origin(plugin.name)      # said only for plugins that did not come with tametools
+                origin = f" [{origin}]" if origin and origin != "bundled" else ""
+                version = f" {plugin.version}" if plugin.version else ""       # only plugins that declare one
+                print(f"{plugin.name}{version}{linked}{origin}: {plugin.description}")
+        if state['enabled'] == []:
+            print("No plugins selected in META[PLUGINS].ENABLED.")
+        for warning in state['warnings']:
+            print(f"warning: {warning}")
+        commands = plugin_commands(allow_external=args.allow_plugins)
+        if commands:
+            print("plugin commands: " + ", ".join(sorted(commands)))
+        exporters = plugin_exporters(allow_external=args.allow_plugins)
+        if exporters:
+            print("plugin export formats: " + ", ".join(name + (f" ({', '.join(spec.suffixes)})" if spec.suffixes else "")
+                                                         for name, spec in sorted(exporters.items())))
         if args.allow_plugins:
-            from .plugin_base.manager import plugin_directories, plugin_load_errors
-
             scanned = [str(directory) for directory in plugin_directories() if directory.is_dir()]
             if scanned:
                 print("drop-in plugin directories: " + ", ".join(scanned))
-            for error in plugin_load_errors():
-                print(f"warning: drop-in plugin not loaded: {error}")
-        if meta and not args.allow_plugins:
-            _print_external_plugin_notice(meta)
+        # A plugin file that failed to load is reported whether or not external plugins are allowed:
+        # a broken file in the program's own plugins folder would otherwise just be missing from the list.
+        for error in plugin_load_errors():
+            print(f"warning: drop-in plugin not loaded: {error}")
+        if not args.allow_plugins:
+            if meta:
+                _print_external_plugin_notice(meta)
+            for hint in unknown_plugin_hints("", meta):
+                if hint.startswith("plugins outside"):
+                    print("hint: " + hint)
         return 0
 
     if args.command == "run-plugin":
@@ -1387,6 +1577,27 @@ def _run_runtime_command(args) -> int:
                 raise ValueError(f"--option must be KEY=VALUE: {item}")
             key, value = item.split("=", 1)
             options[key.strip()] = value.strip()
+        from . import dialogs
+        from .plugin_base import get_plugin
+
+        spec = get_plugin(args.plugin, dataset.meta, allow_external=args.allow_plugins)
+        requested = getattr(args, "dialog", None)
+        if spec is not None and spec.form is None and requested:
+            print(f"note: {spec.name} declares no questions (register_plugin form=); running with the given options.")
+        elif spec is not None:
+            # The plugin's declared questions are put before it runs; the answers become options and are logged with them.
+            asked = dialogs.plugin_options(spec, dataset, options, requested=requested)
+            if asked is None:
+                print("cancelled: the plugin was not run.")
+                return 1
+            options, answered = asked
+            if answered is not None:
+                print("answered: " + (", ".join(answered) or "(nothing set)"))
+                if answered:
+                    print("repeat without asking: " + " ".join("--option " + (f'"{item}"' if " " in item else item) for item in answered))
+        from .plugin_base.manager import plugin_name_conflicts, unknown_plugin_hints
+        from .plugin_base.base import normalize_plugin_name
+
         output = run_plugin(dataset, args.plugin, dataset.meta, args.plugin, options, allow_external=args.allow_plugins)
         if output is None:
             if configured_plugin_modules(dataset.meta) and not args.allow_plugins:
@@ -1396,7 +1607,14 @@ def _run_runtime_command(args) -> int:
             available = ", ".join(plugin.name for plugin in list_plugins(dataset.meta, allow_external=args.allow_plugins))
             print(f"error: unknown plugin: {args.plugin}")
             print(f"available_plugins: {available}")
+            # Say why, when it can be told: a plugin file that failed to load, or one that waits for --allow-plugins.
+            for hint in unknown_plugin_hints(args.plugin, dataset.meta, allow_external=args.allow_plugins):
+                print("hint: " + hint)
             return 1
+        shadowed = plugin_name_conflicts().get(normalize_plugin_name(args.plugin))
+        if shadowed:
+            print(f"warning: {shadowed} also registers {normalize_plugin_name(args.plugin)} and was ignored; "
+                  "the plugin that came with tametools ran. Give yours another name.")
         print(f"[{output.name}]")
         if output.message:
             print(output.message)
@@ -1409,9 +1627,32 @@ def _run_runtime_command(args) -> int:
             for name, table in output.tables.items():
                 _print_table(name, table)
         _print_operation_assets(output)
-        if output.dataset is not None and args.output:
-            _save_dataset(_dataset_with_inherited_log(output.dataset, dataset), args.output)
-            print(f"saved: {args.output}")
+        if args.output:
+            saved = output.dataset
+            if saved is None and output.table is not None:
+                # A plugin that hands back only a table is still saved: the table becomes a dataset with inferred tags.
+                from .plugin_workflow import table_output
+                try:
+                    saved = table_output(normalize_plugin_name(args.plugin), output.table).dataset
+                except ValueError as exc:
+                    print(f"warning: --output was not written: the plugin returned no dataset and its table cannot be saved ({exc}).")
+            if saved is not None:
+                _save_dataset(_dataset_with_inherited_log(saved, dataset), args.output)
+                print(f"saved: {args.output}" + ("" if output.dataset is not None else " (from the plugin's table; column tags were inferred)"))
+            elif output.table is None:
+                print("warning: --output was not written: the plugin returned neither a dataset nor a table.")
+        view_path = getattr(args, "view", None)
+        if view_path:
+            from .plugin_base.extensions import render_view
+            from .plugin_base.manager import plugin_view
+
+            shown = output.dataset if output.dataset is not None and plugin_view(output.dataset, allow_external=args.allow_plugins) else None
+            if shown is None:
+                print(f"warning: --view was not written: {normalize_plugin_name(args.plugin)} registers no screen for its result (register_view).")
+            else:
+                title, html = render_view(shown)
+                Path(view_path).write_text(html, encoding="utf-8")
+                print(f"view: {view_path} ({title})")
         return 0
 
     if args.command == "check-excel":
@@ -1511,7 +1752,8 @@ def _run_runtime_command(args) -> int:
             return 2
 
         interactive = args.interactive if args.interactive is not None else _sys.stdin.isatty()
-        result = init_from_table(args.input, args.output, sheet=sheet, definitions_path=args.definitions, interactive=interactive)
+        result = init_from_table(args.input, args.output, sheet=sheet, definitions_path=args.definitions, interactive=interactive,
+                                 encoding=args.encoding)
         print(f"created: {args.output}")
         if result["sheet"]:
             print(f"source_sheet: {result['sheet']}")
@@ -1783,6 +2025,7 @@ def _run_runtime_command(args) -> int:
                 bundle_data_format=args.bundle_data_format,
                 include_schema=not args.no_schema,
                 include_job=not args.no_job,
+                allow_plugins=args.allow_plugins,
             )
         except ImportError as exc:
             print(f"error: {exc}")
@@ -1851,11 +2094,32 @@ def _run_runtime_command(args) -> int:
         print(f"columns: {len(dataset.columns)}")
         return 0
 
+    if args.command == "sync":
+        from .sync import format_report, sync_history, sync_project
+
+        if args.history:
+            history = sync_history(read_tame(args.path))
+            if args.json:
+                _print_json({"history": _frame_records(history)})
+            elif history.empty:
+                print("No sync has been recorded in this project yet.")
+            else:
+                print(history.to_string(index=False))
+            return 0
+        report = sync_project(args.path, source=args.source, accept_changes=args.accept_changes, dry_run=args.check,
+                              allow_plugins=args.allow_plugins, allow_functions=args.allow_functions)
+        if args.json:
+            _print_json(report.to_dict())
+        else:
+            print(format_report(report, max_rows=args.max_rows))
+        return 1 if report.status == "BLOCKED" else 0
+
     return 1
 
 
 def _print_json(payload) -> None:
-    print(json.dumps(_json_ready(payload), ensure_ascii=False, indent=2))
+    # One JSON value on standard output, as UTF-8, whatever the setting for printed text.
+    write_utf8_to_standard_output(json.dumps(_json_ready(payload), ensure_ascii=False, indent=2) + "\n")
 
 
 def _json_ready(value):
@@ -2060,8 +2324,19 @@ def _completion_commands() -> str:
             "split-tame",
             "attach-meta",
             "import-xlsx",
+            "sync",
+            *_plugin_command_names(),
         ]
     )
+
+
+def _plugin_command_names() -> list[str]:
+    """Commands added by the plugins that load without --allow-plugins (for shell completion)."""
+    try:
+        from .plugin_base.manager import plugin_commands
+        return sorted(plugin_commands())
+    except Exception:       # completion must not fail because a plugin does
+        return []
 
 
 def _bash_completion_script() -> str:
@@ -2150,23 +2425,87 @@ def _format_cli_error(exc: BaseException) -> str:
         return f"Error: invalid tag configuration. {exc}"
     if isinstance(exc, TameValidationError):
         return f"Error: data validation failed. {exc}"
-    if isinstance(exc, ActionError):
+    # These classes are loaded with the rest of the program. A command that ends before that (doctor, for one)
+    # can fail too, so they are told apart by name: asking isinstance for a class that is not loaded would itself fail.
+    kinds = {cls.__name__ for cls in type(exc).__mro__}
+    if "ActionError" in kinds:
         return f"Error: preprocessing ACTION failed. {exc}"
-    if isinstance(exc, CommandPipelineError):
+    if "CommandPipelineError" in kinds:
         return f"Error: command pipeline failed. {exc}"
-    if isinstance(exc, EmbeddedFunctionsDisabledError):
+    if "EmbeddedFunctionsDisabledError" in kinds:
         return f"Error: embedded function execution is disabled. {exc}"
-    if isinstance(exc, EmbeddedFunctionError):
+    if "EmbeddedFunctionError" in kinds:
         return f"Error: embedded function execution failed. {exc}"
     if isinstance(exc, ImportError):
         return f"Error: failed to import a required module. {exc}"
     if isinstance(exc, KeyError):
         return f"Error: required setting or column not found. {exc}"
+    if exc.__class__.__name__ == "PluginError":
+        return f"Error: a plugin does not keep the plugin contract. {exc}"
+    if isinstance(exc, UnicodeDecodeError):
+        from .text_encoding import guess_encoding
+        guess = guess_encoding(bytes(exc.object)) if isinstance(exc.object, (bytes, bytearray)) else None
+        return ("Error: an input file is not UTF-8 text" + (f" (its bytes can be read as {guess})" if guess else "")
+                + ". tametools reads and writes UTF-8 only; save the file as UTF-8 and run again.")
     if isinstance(exc, ValueError):
         return f"Error: invalid input or configuration. {exc}"
     if isinstance(exc, OSError):
         return f"Error: file or system operation failed. {exc}"
     return f"Error: operation failed. {exc}"
+
+
+def _write_utf8_copy(args) -> bool:
+    """validate --fix-encoding: the same .tame text, converted from the encoding the user names to UTF-8.
+
+    Returns whether the copy is a complete dataset file that can be validated on its own.
+    """
+    import codecs
+    import hashlib
+    from .text_encoding import decode_named, guess_encoding, is_utf8
+
+    if _is_stdin_path(args.path):
+        raise ValueError("--fix-encoding converts a file; standard input is always read as UTF-8")
+    if not args.output:
+        raise ValueError("--fix-encoding writes a new file: add --output NEW.tame")
+    kind = _path_kind(args.path)
+    if kind not in {"tame", "meta_tame", "data_tame"} or _path_kind(args.output) != kind:
+        raise ValueError("--fix-encoding converts .tame text files, and --output is the same kind of file (.tame, .meta.tame or .data.tame)")
+    source, target = Path(args.path), Path(args.output)
+    if target.resolve() == source.resolve():
+        raise ValueError("--output must be another file; the original is kept as it is")
+    data = source.read_bytes()
+    encoding = args.source_encoding
+    if not encoding:
+        if is_utf8(data):
+            raise ValueError(f"{args.path} is UTF-8 already; there is nothing to convert")
+        guess = guess_encoding(data)
+        if guess in {"utf-16", "utf-32"}:
+            encoding = guess                         # the byte-order mark says so
+        else:
+            shown = ""
+            if guess:
+                first = [line for line in data.decode(guess).splitlines() if line.strip()][:3]
+                shown = (f" Read as {guess}, the file begins: " + " / ".join(line[:60] for line in first)
+                         + f" . If that is right, add --from {guess}.")
+            raise ValueError("Name the encoding the file is in with --from ENCODING; it is not guessed." + shown)
+    text = decode_named(data, encoding, args.path)
+    name = codecs.lookup(encoding).name
+    notice = sys.stderr if getattr(args, "json", False) else sys.stdout      # with --json, standard output is the JSON value alone
+    if kind != "tame":
+        target.write_text(text, encoding="utf-8", newline="\n")
+        print(f"converted: {args.path} ({name}) -> {args.output} (UTF-8)", file=notice)
+        return False
+    with tempfile.TemporaryDirectory(prefix="tametools_encoding_") as folder:
+        copy = Path(folder) / source.name
+        copy.write_text(text, encoding="utf-8", newline="\n")
+        dataset = read_tame(copy)                    # the ordinary reader: the format rules apply to the converted text
+    from .provenance import append_log_entry
+    dataset = append_log_entry(dataset.replace(source_path=str(source)), action="REENCODE", parent=source.name, output=target.name,
+        message=f"text converted from {name} to UTF-8",
+        parameters={"FROM": name, "TO": "utf-8", "SOURCE_FILE": source.name, "SOURCE_SHA256": hashlib.sha256(data).hexdigest()})
+    _save_dataset(dataset, args.output)
+    print(f"converted: {args.path} ({name}) -> {args.output} (UTF-8)", file=notice)
+    return True
 
 
 def _load_dataset(*args, **kwargs):
@@ -2178,7 +2517,7 @@ def _load_dataset_untracked(path: str, *, meta_path: str | None = None):
     if _is_stdin_path(path):
         if _is_stdin_path(meta_path):
             raise ValueError("stdin '-' can be used for the data file or META file, not both.")
-        text = sys.stdin.read()
+        text = read_standard_input("stdin '-'")
         if not text.strip():
             raise ValueError("stdin '-' did not contain TAME text.")
         with tempfile.TemporaryDirectory(prefix="tametools_stdin_") as tmpdir:
@@ -2188,7 +2527,7 @@ def _load_dataset_untracked(path: str, *, meta_path: str | None = None):
         return dataset.replace(source_path="-")
 
     if _is_stdin_path(meta_path):
-        text = sys.stdin.read()
+        text = read_standard_input("stdin '-'")
         if not text.strip():
             raise ValueError("stdin '-' did not contain META TAME text.")
         with tempfile.TemporaryDirectory(prefix="tametools_meta_stdin_") as tmpdir:
@@ -2317,7 +2656,7 @@ def _save_dataset(
         with tempfile.TemporaryDirectory(prefix="tametools_stdout_") as tmpdir:
             tmp_path = Path(tmpdir) / "stdout.tame"
             write_tame(tmp_path, dataset, tag_storage=tag_storage)
-            sys.stdout.write(tmp_path.read_text(encoding="utf-8"))
+            write_utf8_to_standard_output(tmp_path.read_text(encoding="utf-8"))
         return
 
     kind = _path_kind(path)

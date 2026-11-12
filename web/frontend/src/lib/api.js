@@ -1,7 +1,7 @@
 const API_BASE = import.meta.env.VITE_TAMETOOLS_API_BASE || '';
 
 function requestDataset(dataset) {
-  const {rows, charts, provenance, analysisTables, analysisTableFiles, issues, warnings, plugins, presets, tagCatalog, ...input} = dataset;
+  const {rows, charts, provenance, analysisTables, analysisTableFiles, issues, warnings, plugins, pluginCatalog, pluginSelection, pluginView, presets, tagCatalog, ...input} = dataset;
   return Array.isArray(dataset.dataRows) ? input : {...input, rows};
 }
 
@@ -18,9 +18,11 @@ async function parseResponse(response) {
   if (!response.ok) {
     let message = response.statusText;
     let auditFile = null;
+    let fieldErrors = null;
     try {
       const body = await response.json();
       auditFile = body.auditFile || null;
+      fieldErrors = body.fieldErrors || null;   // plugin form answers the server refused: question key -> message
       const detail = body.detail || body.error;
       message = typeof detail === 'string' ? detail : Array.isArray(detail)
         ? detail.map((item) => item.msg || '입력값을 확인해 주세요.').join(' / ') : message;
@@ -29,6 +31,7 @@ async function parseResponse(response) {
     }
     const error = new Error(message);
     error.auditFile = auditFile;
+    error.fieldErrors = fieldErrors;
     throw error;
   }
   return response.json();
@@ -191,6 +194,31 @@ export async function createDatasetPlugin(dataset, options) {
     body: JSON.stringify({ dataset:requestDataset(dataset), options })
   });
   return parseResponse(response);
+}
+
+export async function selectDatasetPlugins(dataset, enabled) {
+  return parseResponse(await fetch(`${API_BASE}/api/plugins/selection`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset: requestDataset(dataset), options: { enabled } })
+  }));
+}
+
+// The questions a plugin declared (register_plugin form=...). `form` is null when it declared none;
+// `requiresTrust` means the plugin is external code that must be trusted (allowPlugins) before its questions can be read.
+export async function getPluginForm(dataset, options) {
+  return parseResponse(await fetch(`${API_BASE}/api/plugins/form`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset: requestDataset(dataset), options })
+  }));
+}
+
+// The screen a plugin registered for this result (register_view): {name, title, html}. `html` is one complete
+// document made by the plugin; show it only through isolatedDocument() in a sandboxed frame (lib/pluginView.js).
+export async function getPluginView(dataset, options = {}) {
+  return parseResponse(await fetch(`${API_BASE}/api/plugins/view`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset: requestDataset(dataset), options })
+  }));
 }
 
 export async function runDatasetPlugin(dataset, options) {

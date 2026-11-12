@@ -165,23 +165,17 @@ def execute_action_pipeline(dataset: TameDataset, pipeline_name: str = "DEFAULT"
     action_names = _resolve_action_pipeline_names(dataset.meta, pipeline_name)
     if not action_names:
         raise ActionError(f"Undefined or empty ACTION pipeline: {pipeline_name}")
-    current = dataset
-    outputs: list[OperationOutput] = []
     detailed_log = str(log_level or "detailed").strip().lower() == "detailed"
-    with run_scope():
-        for action_name in action_names:
-            with operation_scope(f'ACTION:{action_name}', [current]):
-                input_hash = dataset_content_hash(current)
-                output = execute_action(current, action_name)
-                target = output.dataset if output.dataset is not None else current
-                output.dataset = inherit_logs(target, current)
-                if detailed_log:
-                    name, config = _resolve_action_config(current.meta, action_name)
-                    output.dataset = _logged_action_dataset(output.dataset, action_name=name, config=config,
-                        input_hash=input_hash, output=output, input_dataset=current)
-                outputs.append(output)
-                current = output.dataset
-    return PipelineResult(work_name=str(pipeline_name), final_dataset=current, outputs=outputs)
+
+    def record(result, action_name, output, input_dataset, input_hash):
+        name, config = _resolve_action_config(input_dataset.meta, action_name)
+        return _logged_action_dataset(result, action_name=name, config=config,
+                                      input_hash=input_hash, output=output, input_dataset=input_dataset)
+
+    from .chain import run_chain
+    return run_chain(dataset, str(pipeline_name), action_names,
+                     scope=lambda action_name: (f'ACTION:{action_name}', None), execute=execute_action,
+                     record=record if detailed_log else None, hash_input=True)
 
 
 def _logged_action_dataset(
@@ -978,7 +972,9 @@ def _read_join_table(path: str) -> tuple[pd.DataFrame, list[ColumnSpec]]:
         return ds.df, list(ds.columns)
     if lower.endswith((".csv", ".tsv", ".txt")):
         sep = "\t" if lower.endswith((".tsv", ".txt")) else ","
-        frame = pd.read_csv(path, sep=sep, dtype=str).fillna("")
+        from io import StringIO
+        from .text_encoding import SAVE_HINT, read_utf8
+        frame = pd.read_csv(StringIO(read_utf8(path, hint=SAVE_HINT)), sep=sep, dtype=str).fillna("")
         return frame, [ColumnSpec(original_header=c, name=c, tags=()) for c in frame.columns]
     raise ActionError(f"JOIN unsupported RIGHT file type: {path}")
 
@@ -1354,6 +1350,12 @@ def _resolve_column(dataset: TameDataset, name: str) -> ColumnSpec:
     text = str(name or "").strip()
     if not text:
         raise ActionError("Column name is required.")
+    if text.lower().startswith("id:"):
+        from .analysis_contract import resolve_id
+        try:
+            return resolve_id(dataset, text[3:])
+        except ValueError as exc:
+            raise ActionError(str(exc)) from exc
     if text.lower().startswith("tag:"):
         tag = text.split(":", 1)[1]
         columns = dataset.columns_with_tag(tag)

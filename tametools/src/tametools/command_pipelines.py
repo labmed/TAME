@@ -14,14 +14,17 @@ from .analysis import (
     validate_dataset,
 )
 from .age import age_value_profile, standardize_age_dataset
+from .chain import run_chain, unfinished_steps
 from .config import ci_get
 from .embedded_functions import EmbeddedFunctionError, EmbeddedFunctionsDisabledError
 from .evaluation import evaluate_dataset, write_evaluation_report
-from .exporters import available_export_formats, export_dataset
+from .exporters import export_dataset
 from .models import OperationOutput, PipelineResult, TameDataset
 from .pipeline import execute_work
 from .provenance import append_log_entry, inherit_logs, run_scope, operation_scope
+from .plugin_base.base import normalize_plugin_name
 from .plugin_base.manager import configured_plugin_modules, run_plugin
+from .plugin_workflow import passed_on
 from .review_profiles import category_value_profile, datetime_value_profile
 from .sex import parse_sex_binary_map, sex_value_profile, standardize_sex_dataset
 from .transforms import (
@@ -54,23 +57,19 @@ def execute_command_pipeline(
     log_level: str = "detailed",
 ) -> PipelineResult:
     commands = _resolve_pipeline_commands(dataset.meta, pipeline_name)
-    outputs: list[OperationOutput] = []
-    current = dataset
-    with run_scope():
-        for command_text in commands:
-            with operation_scope('COMMAND:' + command_text.split()[0].upper(), [current], parameters={'command': command_text}):
-                output = _execute_command_text(current, command_text, allow_functions=allow_functions,
-                    allow_plugins=allow_plugins, log_level=log_level)
-                target = output.dataset if output.dataset is not None else current
-                output.dataset = inherit_logs(target, current)
-                if str(log_level).lower() == 'detailed':
-                    output.dataset = append_log_entry(output.dataset, action='COMMAND:' + command_text.split()[0],
-                        message=output.message or command_text, parameters={'command': command_text},
-                        input_dataset=current, status=output.status, warnings=output.warnings,
-                        operation_output=output, counts={'ISSUES': len(output.issues or [])})
-                outputs.append(output)
-                current = output.dataset
-    return PipelineResult(work_name=pipeline_name, final_dataset=current, outputs=outputs)
+
+    def record(result, command_text, output, input_dataset, input_hash):
+        return append_log_entry(result, action='COMMAND:' + command_text.split()[0],
+            message=output.message or command_text, parameters={'command': command_text},
+            input_dataset=input_dataset, status=output.status, warnings=output.warnings,
+            operation_output=output, counts={'ISSUES': len(output.issues or [])})
+
+    return run_chain(
+        dataset, pipeline_name, commands,
+        scope=lambda command_text: ('COMMAND:' + command_text.split()[0].upper(), {'command': command_text}),
+        execute=lambda current, command_text: _execute_command_text(current, command_text, allow_functions=allow_functions,
+                                                                    allow_plugins=allow_plugins, log_level=log_level),
+        record=record if str(log_level).lower() == 'detailed' else None)
 
 
 def _resolve_pipeline_commands(meta: dict, pipeline_name: str) -> list[str]:
@@ -198,7 +197,7 @@ def _build_pipeline_parser(command: str) -> argparse.ArgumentParser:
         return parser
     if normalized == "export":
         parser.add_argument("output")
-        parser.add_argument("--format", choices=available_export_formats(), default=None)
+        parser.add_argument("--format", default=None)      # tametools' own formats, or one registered by a plugin
         parser.add_argument("--bundle-data-format", choices=["csv", "tsv", "jsonl", "parquet", "feather"], default="csv")
         parser.add_argument("--no-schema", action="store_true")
         parser.add_argument("--no-job", action="store_true")
@@ -229,6 +228,10 @@ def _dispatch_pipeline_command(
             )
         except (EmbeddedFunctionError, EmbeddedFunctionsDisabledError, KeyError) as exc:
             raise CommandPipelineError(str(exc)) from exc
+        unfinished = unfinished_steps(nested)
+        if unfinished:
+            raise CommandPipelineError(f"Work {args.work} stopped at a step that is neither a step of tametools nor an available plugin: "
+                                       + ", ".join(unfinished))
         message = f"nested_work={args.work} outputs={len(nested.outputs)} final_rows={len(nested.final_dataset.df)}"
         return OperationOutput(
             name=command_text,
@@ -254,6 +257,8 @@ def _dispatch_pipeline_command(
                     "External plugin modules are disabled. Add --allow-plugins only for trusted local files."
                 )
             raise CommandPipelineError(f"Unknown plugin in command pipeline: {args.plugin}")
+        output.name = normalize_plugin_name(args.plugin)
+        output = passed_on(output, normalize_plugin_name(args.plugin))      # its table is what the next command receives
         output.name = command_text
         return output
 
@@ -511,6 +516,7 @@ def _dispatch_pipeline_command(
             bundle_data_format=args.bundle_data_format,
             include_schema=not args.no_schema,
             include_job=not args.no_job,
+            allow_plugins=allow_plugins,
         )
         warnings = [f"file={path}" for path in result.files]
         return OperationOutput(

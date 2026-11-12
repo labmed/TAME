@@ -133,9 +133,9 @@ class PluginExtensibilityTests(unittest.TestCase):
 
 
 class IndependentReportPluginTests(unittest.TestCase):
-    """제3자(발주사) 독립 검증 플러그인 회귀 테스트.
+    """독립 검증 플러그인 회귀 테스트.
 
-    수행사 예제와 다른 플러그인 조합(QC + 이상률 + 추세), 다른 차트 타입(BAR+LINE),
+    기본 예제와 다른 플러그인 조합(QC + 이상률 + 추세), 다른 차트 타입(BAR+LINE),
     컬럼명이 전부 비표준인 입력에서 차트 포함 docx 보고서가 만들어지는지 고정한다.
     """
 

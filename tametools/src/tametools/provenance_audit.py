@@ -41,7 +41,9 @@ def data_fingerprint(dataset):
 
 
 def control_snapshot(dataset):
-    meta = {k: deepcopy(v) for k, v in dataset.meta.items() if str(k).upper() not in {'LOG', 'PROVENANCE', 'INTEGRITY'}}
+    # SYNC_STATE (bookkeeping) and SYNC_RECORDS (what people recorded about results) are written by
+    # `tametools sync` and its record commands; neither is a setting that affects results.
+    meta = {k: deepcopy(v) for k, v in dataset.meta.items() if str(k).upper() not in {'LOG', 'PROVENANCE', 'INTEGRITY', 'SYNC_STATE', 'SYNC_RECORDS'}}
     # TAGS may move between headers and COLUMN on export; effective tags are below.
     for key in list(meta):
         if str(key).upper() == 'COLUMN' and isinstance(meta[key], dict):

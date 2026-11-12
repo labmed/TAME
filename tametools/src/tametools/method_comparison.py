@@ -3,16 +3,61 @@ import numpy as np
 import pandas as pd
 
 from .analysis import numeric_series_for
-from .analysis_contract import resolve_id
+from .analysis_contract import resolve_id, resolve_selector
 from .cellstate import STATE_VALUE, cell_state
 from .config import ci_get
 from .measurement_tags import require_quantitative
 from .observation_contract import key_frame, observation_info
 
 
+def passing_bablok(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Passing-Bablok regression of y on x: (slope, intercept)."""
+    n = len(x)
+    slopes: list[float] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = x[j] - x[i]
+            dy = y[j] - y[i]
+            if dx == 0:
+                continue
+            s = dy / dx
+            if s == -1:
+                continue
+            slopes.append(s)
+    if not slopes:
+        return float("nan"), float("nan")
+    slopes_sorted = sorted(slopes)
+    # Shift offset K = number of slopes < -1 (Passing-Bablok correction).
+    k = sum(1 for s in slopes_sorted if s < -1)
+    m = len(slopes_sorted)
+    idx = (m + 1) / 2 + k
+    if m % 2 == 1:
+        slope = slopes_sorted[int((m + 1) / 2 - 1 + k)] if 0 <= int((m + 1) / 2 - 1 + k) < m else float(np.median(slopes_sorted))
+    else:
+        lo = int(m / 2 - 1 + k); hi = int(m / 2 + k)
+        if 0 <= lo < m and 0 <= hi < m:
+            slope = (slopes_sorted[lo] + slopes_sorted[hi]) / 2
+        else:
+            slope = float(np.median(slopes_sorted))
+    intercept = float(np.median(y - slope * x))
+    return float(slope), intercept
+
+
+def deming(x: np.ndarray, y: np.ndarray, lam: float = 1.0) -> tuple[float, float]:
+    """Deming regression of y on x with error-variance ratio ``lam``: (slope, intercept)."""
+    mx, my = float(np.mean(x)), float(np.mean(y))
+    sxx = float(np.sum((x - mx) ** 2))
+    syy = float(np.sum((y - my) ** 2))
+    sxy = float(np.sum((x - mx) * (y - my)))
+    if sxy == 0:
+        return float("nan"), float("nan")
+    slope = (syy - lam * sxx + np.sqrt((syy - lam * sxx) ** 2 + 4 * lam * sxy ** 2)) / (2 * sxy)
+    intercept = my - slope * mx
+    return float(slope), float(intercept)
+
+
 def compare_methods(dataset, options, results, method_column, test_column, keys):
     from scipy.stats import t
-    from .plugins.clinical_stats import _deming, _passing_bablok
     if ci_get(dataset.meta, "SURVEY", None) is not None:
         raise ValueError("Method comparison does not implement survey-weighted inference")
     observation_info(dataset, inference=True)
@@ -37,8 +82,7 @@ def compare_methods(dataset, options, results, method_column, test_column, keys)
     else:
         if not keys:
             raise ValueError("Method comparison requires specimen/time pairing keys")
-        from .plugins.clinical_stats import _resolve
-        names = [_resolve(dataset, name).name for name in keys]
+        names = [resolve_selector(dataset, name).name for name in keys]
         if len(set(names)) != len(names):
             raise ValueError("Duplicate pairing key")
         key_data = dataset.df[names].copy()
@@ -92,8 +136,8 @@ def compare_methods(dataset, options, results, method_column, test_column, keys)
                 rows.append(row)
                 continue
             x, y = paired[a].to_numpy(float), paired[b].to_numpy(float)
-            pb_slope, pb_intercept = _passing_bablok(x, y)
-            slope, intercept = _deming(x, y, lam=float(lam))
+            pb_slope, pb_intercept = passing_bablok(x, y)
+            slope, intercept = deming(x, y, lam=float(lam))
             diff = y - x
             bias, sd = float(diff.mean()), float(diff.std(ddof=1))
             margin = float(t.ppf(.975, len(diff)-1)) * sd / np.sqrt(len(diff))

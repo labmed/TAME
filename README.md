@@ -1,4 +1,4 @@
-# TAME and tametools 0.4.0
+# TAME and tametools 0.5.0
 
 TAME stores tabular data, column semantics, analysis settings, and processing history in one UTF-8 text file. **tametools** provides a Python API, command-line tools, and a local browser workbench.
 
@@ -6,9 +6,9 @@ TAME stores tabular data, column semantics, analysis settings, and processing hi
 
 | Distribution | Requirements | Start |
 |---|---|---|
-| Windows installer | Windows x64 | Install `tametools-0.4.0-x64.msi`, then open **tametools Web Workbench** |
-| Windows portable | Windows x64 | Extract the complete `tametools-0.4.0-windows-x64-portable.zip`; run `tametools/tametools-web.exe` |
-| Local Chrome bundle | Python 3.10–3.13, 64-bit; Chrome; internet for first setup | Extract `tametools-0.4.0-browser-local.zip`; run `Start_Chrome.cmd` or `bash Start_Chrome.sh` |
+| Windows installer | Windows x64 | Install `tametools-0.5.0-x64.msi`, then open **tametools Web Workbench** |
+| Windows portable | Windows x64 | Extract the complete `tametools-0.5.0-windows-x64-portable.zip`; run `tametools/tametools-web.exe` |
+| Local Chrome bundle | Python 3.10–3.13, 64-bit; Chrome; internet for first setup | Extract `tametools-0.5.0-browser-local.zip`; run `Start_Chrome.cmd` or `bash Start_Chrome.sh` |
 | Python package | Python 3.10+ | Install the wheel or the source package |
 
 Download files from [GitHub Releases](https://github.com/labmed/TAME/releases). The browser bundle runs a Python server on your own computer at `127.0.0.1:8765`; it is not a serverless HTML application. Node.js is unnecessary when using the prebuilt browser bundle.
@@ -30,6 +30,7 @@ The wheel contains the CLI and Python library. The web backend and frontend are 
 
 ```sh
 tametools init data.csv --output starter.tame
+tametools init legacy.csv --encoding cp949 --output starter.tame   # a table that is not UTF-8: name its encoding
 tametools init data.csv --output reviewed.tame --definitions starter.definitions.toml --require-reviewed
 tametools validate reviewed.tame
 tametools describe reviewed.tame
@@ -37,6 +38,10 @@ tametools convert reviewed.tame result.xlsx
 ```
 
 `init` checks complete columns, proposes tags, and flags ambiguous sex codes, units, censoring policies, and missing-value meanings. Review the generated definitions before using them. Numeric sex codes can have different mappings for each source. Age review supports mixed month/year expressions, optional completed-year columns, and optional age groups.
+
+Files are UTF-8. A `.tame` file in another encoding is refused with an explanation; `tametools validate old.tame --fix-encoding --from cp949 --output new.tame` writes a UTF-8 copy.
+
+The bytes written to a pipe or a redirect are UTF-8 too (TAME text on `-` and `--json` output always, printed text by default). What a shell does with them is the shell's business: Windows PowerShell 5.1 reads piped output in the console code page and its `>` rewrites output as UTF-16. In that shell, pass an output file (`tametools convert in.tame out.tame`), and for pipelines either run `[Console]::OutputEncoding = [Text.Encoding]::UTF8` or let printed text follow the console code page with `tametools doctor --pipe-text console`. `tametools doctor` shows the setting in use. cmd.exe passes the bytes on unchanged.
 
 [init and SEX/AGE declarations](docs/INIT_SEMANTICS_KO.md) · [Unit conversions](docs/INIT_UNIT_DECLARATIONS_KO.md)
 
@@ -47,6 +52,11 @@ tametools convert reviewed.tame result.xlsx
 - Source-specific category normalization, declared unit conversion, merging, joins, and reshaping.
 - Descriptive analysis, survey-aware summaries, anonymization, spreadsheet import/export, and image columns.
 - `RI_EP28`: reference-interval estimation, outlier policies, partitions, interval verification, and reports.
+- Per-file plugin selection in META, with dependency checks and a shared web/CLI execution policy.
+- `QC_WORKFLOW`: connected preprocessing, QC, trends, run review, and shared HTML/Word reports.
+- `WESTGARD_QC`: Westgard multirule against declared baselines, run decisions, action records, and an HTML report.
+- `sync`: a project file that follows a growing source file and re-runs its work when data, settings, or plugin code change.
+- Plugins use other plugins through one public module (`tametools.plugin_api`), with dependency and version checks.
 - Reusable metadata and processing chains with settings, input hashes, and parent history.
 - Browser workbench with example loading, source selection, result tables, and report downloads.
 
@@ -54,9 +64,14 @@ The included synthetic examples are software demonstrations. The Kenya example i
 
 ## Documentation
 
+- [Choose plugins for a TAME file (한국어)](docs/PLUGIN_SELECTION_KO.md)
+
+- [Release notes 0.5.0](docs/RELEASE_NOTES_v0.5.0.md)
 - [File-format specification](TAME_FORMAT_SPECIFICATION.md)
+- [META sections read and written by tametools (한국어)](docs/TAME_META_SECTIONS.md)
 - [Tutorials](tutorial/README.md)
 - [EP28 plugin](docs/REFERENCE_INTERVAL_EP28_GUIDE_KO.md)
+- [Connected plugins and QC example (한국어)](docs/PLUGIN_WORKFLOWS_KO.md)
 - [Plugin development](docs/PLUGIN_AUTHOR_GUIDE.md)
 - [Analysis plans](docs/TAME_ANALYSIS_PLAN_V1.md)
 - [Analysis history and verification](docs/ANALYSIS_LOG_GUIDE_KO.md)

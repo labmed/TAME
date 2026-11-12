@@ -1,6 +1,9 @@
 <script>
   import { tick, onDestroy } from 'svelte';
   import ExampleLoader from '$lib/ExampleLoader.svelte';
+  import PluginSelectionPanel from '$lib/PluginSelectionPanel.svelte';
+  import PluginForm from '$lib/PluginForm.svelte';
+  import { isolatedDocument } from '$lib/pluginView.js';
   import ReferencePanel from '$lib/ReferencePanel.svelte';
   import SexNormalizationPanel from '$lib/SexNormalizationPanel.svelte';
   import RemoteResultTable from '$lib/RemoteResultTable.svelte';
@@ -19,10 +22,13 @@
     convertWorkbook,
     createDatasetPlugin,
     downloadDataset,
+    getPluginForm,
+    getPluginView,
     openFile,
     refreshDataset,
     reviewDataset,
     runDatasetPlugin,
+    selectDatasetPlugins,
     runEda,
     runMetaAnalysis,
     runReferenceInterval,
@@ -45,9 +51,10 @@
   onDestroy(() => gridApi?.destroy());
   async function openExampleDataset(event) {
     await runTask(async () => {
-      await setDataset(event.detail, {action:'공개 예제 불러오기'});
+      await setDataset(event.detail, {action:'예제 불러오기'});
+      if (event.detail.defaultPlugin) {selectedPlugin = event.detail.defaultPlugin; pluginOptionsText = '{}'; await showTab('plugins');}
       showExamples = false;
-      message = `${event.detail.filename} · ${event.detail.rowCount.toLocaleString()}행을 불러왔습니다.`;
+      message = `${event.detail.filename} · ${event.detail.rowCount.toLocaleString()}행을 불러왔습니다.${event.detail.defaultPlugin ? ' 플러그인 탭에서 '+event.detail.defaultPlugin+'를 실행하세요.' : ''}`;
     }, '예제 자료를 작업실에 불러옵니다.');
   }
   let workspaceItems = [];
@@ -98,6 +105,22 @@
 `;
   let selectedPlugin = '';
   let pluginOptionsText = '{}';
+  // This workbench's reference-interval screen (ReferencePanel), as plugins name it in register_plugin(panel=...).
+  // The page knows that screen, not the plugin behind it: the plugin list says which plugin declared it (`panel`)
+  // and which older plugins it replaces (`supersededBy`), so no plugin is recognised by its name here.
+  const REFERENCE_PANEL = 'reference_interval';
+  // Questions the selected plugin declared (register_plugin form=...). Without any, the JSON box is the only input.
+  let pluginForm = null;
+  let pluginAnswers = {};
+  let pluginFieldErrors = {};
+  let pluginRefusedAnswers = {};  // the answers as they were when the errors were shown: a message goes once its answer changes
+  let pluginFormState = '';       // '' | 'loading' | 'trust' (external code: trust before its questions can be read) | 'error'
+  let pluginFormNote = '';
+  let pluginFormKey = '';         // the input and plugin the questions on screen belong to
+  let pluginFormTrustKey = '';    // trust already confirmed for this key when its questions were loaded
+  let pluginFormRequest = 0;
+  // The screen a plugin registered for its results (register_view), as last opened: {datasetId, title, html}.
+  let pluginViewDoc = null;
 
   const defaultCommonTags = [
     'RESULT',
@@ -161,9 +184,14 @@
   $: presetList = inputDataset?.presets || [];
   $: pluginList = inputDataset?.plugins || [];
   $: selectedPluginSpec = pluginList.find((plugin) => plugin.name === selectedPlugin) || null;
-  $: if (pluginList.length && !pluginList.some((plugin) => plugin.name === selectedPlugin)) {
-    selectedPlugin = pluginList.some(p => p.name === 'RI_EP28') ? 'RI_EP28' : pluginList[0].name;
+  $: if (!pluginList.some((plugin) => plugin.name === selectedPlugin)) {
+    selectedPlugin = pluginList.find(p => p.name === inputDataset?.defaultPlugin)?.name || pluginList.find(p => p.panel === REFERENCE_PANEL)?.name || pluginList[0]?.name || '';
   }
+  // Asked again only when the plugin or the saved state of the input changes, so typed answers survive leaving the tab.
+  $: pluginFormWanted = activeTab === 'plugins' && inputDataset && selectedPluginSpec
+    ? `${inputDatasetId}|${selectedPlugin}|${JSON.stringify(inputDataset.auditBaseline || '')}` : '';
+  $: if (pluginFormWanted && pluginFormWanted !== pluginFormKey) loadPluginForm();
+  $: pluginShownErrors = Object.fromEntries(Object.entries(pluginFieldErrors).filter(([key]) => pluginAnswers[key] === pluginRefusedAnswers[key]));
   $: validationIssues = validationReview?.issues || dataset?.issues || [];
   $: validationProfiles = validationReview?.profiles || [];
   $: rowStatus = dataset
@@ -732,9 +760,9 @@
   }
 
   async function createPlugin() {
-    const payload = currentDataset();
+    const payload = inputSnapshot();
     if (!payload) return;
-    const parentId = activeDatasetId;
+    const parentId = inputDatasetId;
     await runTask(async () => {
       const result = await createDatasetPlugin(payload, {
         name: pluginName,
@@ -744,27 +772,116 @@
       await setDataset(result, {
         parentId,
         action: `plugin created: ${pluginName}`,
-        tab: 'meta',
+        tab: 'plugins',
         message: 'Plugin created'
       });
       selectedPlugin = pluginName.trim().toUpperCase().replace(/-/g, '_');
     });
   }
 
+  async function openPluginSettings() {
+    const payload = inputSnapshot(); if (!payload) return;
+    const sourceId = inputDatasetId;
+    await runTask(async () => {
+      const refreshed = await refreshDataset(payload);
+      if (activeDatasetId === sourceId) await replaceActiveDataset(refreshed);
+      else workspaceItems = workspaceItems.map(item => item.id === sourceId ? {...item, dataset:refreshed} : item);
+      await showTab('plugins');
+      message = '입력 TAME의 플러그인 선택을 불러왔습니다.';
+    }, '파일의 플러그인 설정을 확인합니다.');
+  }
+
+  async function applyPluginSelection(event) {
+    const payload = inputSnapshot(); if (!payload) return;
+    const sourceId = inputDatasetId;
+    await runTask(async () => {
+      const result = await selectDatasetPlugins(payload, event.detail);
+      if (activeDatasetId === sourceId) await replaceActiveDataset(result);
+      else {
+        workspaceItems = workspaceItems.map(item => item.id === sourceId ? {...item, dataset:result} : item);
+        await activateWorkspaceItem(sourceId, {tab:'plugins'});
+      }
+      pluginOptionsText = '{}';
+      message = '입력 자료에 플러그인 선택을 적용했습니다. TAME 저장으로 파일에 보존하세요.';
+    }, '이 파일의 플러그인 선택을 적용합니다.');
+  }
+
+  async function loadPluginForm(trusted = false) {
+    const key = pluginFormWanted;
+    const request = ++pluginFormRequest;
+    pluginFormKey = key;
+    pluginForm = null; pluginAnswers = {}; pluginFieldErrors = {}; pluginFormNote = '';
+    // The plugin list already says whether questions are declared, so the data is sent only when there is a form to
+    // fetch: 'none' keeps the JSON box, 'unknown' is external code whose declaration cannot be read before trust.
+    const declared = trusted ? 'declared' : selectedPluginSpec?.questions;
+    if (declared === 'none' || declared === 'unknown') {pluginFormState = declared === 'unknown' ? 'trust' : ''; return;}
+    pluginFormState = 'loading';
+    try {
+      const result = await getPluginForm(inputDataset, {plugin: selectedPlugin, pluginOptions: {}, allowPlugins: trusted});
+      if (request !== pluginFormRequest) return;      // another plugin or input was chosen meanwhile
+      if (result.form) {
+        pluginForm = result.form;
+        pluginAnswers = Object.fromEntries(result.form.fields.map((item) => [item.key, item.value]));
+      }
+      pluginFormState = !result.form && result.requiresTrust ? 'trust' : '';
+    } catch (err) {
+      if (request !== pluginFormRequest) return;
+      pluginFormState = 'error';
+      pluginFormNote = err.message || String(err);
+    }
+  }
+
+  function trustAndLoadPluginForm() {
+    if (confirmPluginTrust({...selectedPluginSpec, requiresTrust: true}) !== true) return;
+    pluginFormTrustKey = pluginFormKey;
+    loadPluginForm(true);
+  }
+
+  function pluginFormAnswers() {
+    // Every question is sent: a number box left empty is null here and must reach the server as "left empty".
+    return Object.fromEntries(pluginForm.fields.map((item) => [item.key, pluginAnswers[item.key] ?? '']));
+  }
+
+  function unansweredRequired(answers) {
+    const empty = (value) => value === '' || value === null || value === undefined || (Array.isArray(value) && !value.length);
+    return Object.fromEntries(pluginForm.fields
+      .filter((item) => item.required && item.kind !== 'check' && empty(answers[item.key]))
+      .map((item) => [item.key, `'${item.label}' 은(는) 필수 항목입니다`]));
+  }
+
   async function executePlugin() {
     const payload = inputSnapshot();
-    if (!payload || !selectedPlugin) return;
+    if (!payload || !selectedPlugin || !selectedPluginSpec) return;
     const problem = roleProblem(selectedPluginSpec);
     if (problem) {error = problem;return;}
-    const allowPlugins = confirmPluginTrust(selectedPluginSpec);
+    const answers = pluginForm ? pluginFormAnswers() : null;
+    if (answers) {
+      const lacking = unansweredRequired(answers);
+      if (Object.keys(lacking).length) {
+        error = Object.values(lacking).join(' / ');
+        message = '입력 폼의 필수 항목을 채워 주세요.';
+        await showPluginFieldErrors(lacking);
+        return;
+      }
+      pluginFieldErrors = {};
+    }
+    const allowPlugins = pluginFormTrustKey && pluginFormTrustKey === pluginFormKey ? true : confirmPluginTrust(selectedPluginSpec);
     if (allowPlugins === null) return;
     const parentId = inputDatasetId;
+    let refused = null;       // answers the server did not accept: question key -> message
     await runTask(async () => {
-      const result = await runDatasetPlugin(payload, {
-        plugin: selectedPlugin,
-        pluginOptions: parsePluginOptions(),
-        allowPlugins
-      });
+      let result;
+      try {
+        result = await runDatasetPlugin(payload, {
+          plugin: selectedPlugin,
+          pluginOptions: parsePluginOptions(),
+          allowPlugins,
+          ...(answers ? {answers} : {})
+        });
+      } catch (err) {
+        refused = err.fieldErrors || null;
+        throw err;
+      }
       await setDataset(result, {
         parentId,
         action: `plugin: ${selectedPlugin}`,
@@ -773,6 +890,31 @@
         message: 'Plugin output TAME generated'
       });
     });
+    if (refused && pluginForm) await showPluginFieldErrors(refused);
+  }
+
+  // Opens the screen the plugin of this result registered. It is made anew each time, from the data as it is now.
+  async function openPluginView() {
+    const payload = currentDataset();
+    const view = payload?.pluginView;
+    if (!view) return;
+    const allowPlugins = confirmPluginTrust(view);     // an external plugin's screen runs that plugin's code again
+    if (allowPlugins === null) return;
+    const datasetId = activeDatasetId;
+    await runTask(async () => {
+      const result = await getPluginView(payload, {allowPlugins});
+      pluginViewDoc = {datasetId, title: result.title, html: isolatedDocument(result.html)};
+      await showTab('plugin-view');
+      message = `${result.title} 화면을 열었습니다.`;
+    }, `${view.title} 화면을 만들고 있습니다.`);
+  }
+
+  async function showPluginFieldErrors(errors) {
+    pluginFieldErrors = errors;
+    pluginRefusedAnswers = {...pluginAnswers};
+    await tick();
+    const first = pluginForm.fields.find((item) => errors[item.key]);
+    if (first) document.querySelector(`[data-plugin-field="${CSS.escape(first.key)}"] :is(input, select, textarea)`)?.focus();
   }
 
   function parsePluginOptions() {
@@ -876,7 +1018,7 @@
   async function executeMetaAnalysis(analysis) {
     const payload = inputSnapshot();
     if (!payload || !analysis?.name) return;
-    if (['REFERENCE_INTERVAL','RI_EP28','REFERENCE_INTERVAL_EP28'].includes(analysis.plugin)) {await openReferenceSettings();return;}
+    if (analysis.panel === REFERENCE_PANEL) {await openReferenceSettings();return;}
     const allowPlugins = confirmPluginTrust(analysis);
     if (allowPlugins === null) return;
     const parentId = inputDatasetId;
@@ -959,6 +1101,7 @@
 
   function chartDomain(chart) {
     const values = chartRows(chart).flatMap(row => chart.type === 'interval' ? [row.low, row.high, row.lowCiLow, row.lowCiHigh, row.highCiLow, row.highCiHigh] : [row.y]).filter(v => v !== null && v !== undefined).map(Number).filter(Number.isFinite);
+    values.push(...(chart.referenceLines || []).map(line => Number(line.VALUE)).filter(Number.isFinite));
     if (!values.length) return { min: 0, max: 1 };
     const min = Math.min(0, ...values);
     const max = Math.max(0, ...values);
@@ -1019,10 +1162,12 @@
   }
 
   function linePath(chart, series) {
-    const points = chartRows(chart)
-      .filter((row) => (row.series || '') === series)
-      .map((row) => [chartX(chart, row.x), chartY(chart, row.y)]);
-    return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point[0]},${point[1]}`).join(' ');
+    let connected = false;
+    return chartRows(chart).filter(row => (row.series || '') === series).map(row => {
+      if (row.y == null || !Number.isFinite(Number(row.y))) {connected = false; return '';}
+      const point = `${connected ? 'L' : 'M'}${chartX(chart,row.x)},${chartY(chart,row.y)}`;
+      connected = true; return point;
+    }).join(' ');
   }
 
   function chartColor(series, index) {
@@ -1066,13 +1211,13 @@
 </script>
 
 <div class="app-shell" role="application" aria-label="tametools 임상데이터 작업실" on:drop={onDrop} on:dragover|preventDefault>
-  <header class="titlebar"><strong>tametools <small>0.4.0</small> · 임상데이터 작업실</strong><button on:click={() => showTab('tutorial')} disabled={busy}>도움말</button></header>
+  <header class="titlebar"><strong>tametools <small>0.5.0</small> · 임상데이터 작업실</strong><button on:click={() => showTab('tutorial')} disabled={busy}>도움말</button></header>
   <nav class="ribbon" aria-label="파일 작업">
     <button on:click={() => fileInput.click()} disabled={busy}>파일 열기</button>
     <button on:click={() => showExamples = !showExamples} disabled={busy} aria-expanded={showExamples}>공개 예제 불러오기</button>
     <button on:click={() => download('tame')} disabled={!dataset || busy}>TAME 저장</button>
     <button on:click={() => download('xlsx')} disabled={!dataset || busy}>Excel 저장</button>
-    <button on:click={() => showProperties = !showProperties} aria-expanded={showProperties}>속성·플러그인</button>
+    <button on:click={() => showProperties = !showProperties} aria-expanded={showProperties}>열 속성</button>
     <span class="ribbon-note">저장 대상: {activeItem?.title || '열린 파일 없음'}</span>
     <input bind:this={fileInput} type="file" accept=".xlsx,.xlsm,.tame,.data.tame" hidden on:change={handleFileChange} />
   </nav>
@@ -1359,6 +1504,7 @@
         <button class:active={activeTab === 'meta'} class="tab" type="button" on:click={() => showTab('meta')}>
           메타
         </button>
+        <button class:active={activeTab === 'plugins'} class="tab" type="button" on:click={openPluginSettings} disabled={!inputDataset || busy}>플러그인</button>
         <button class:active={activeTab === 'history'} class="tab" type="button" on:click={() => showTab('history')}>분석 이력</button>
         <button class:active={activeTab === 'validate'} class="tab" type="button" on:click={() => showTab('validate')}>
           검증
@@ -1366,6 +1512,12 @@
         <button class:active={activeTab === 'eda'} class="tab" type="button" on:click={() => showTab('eda')}>
           분석결과
         </button>
+        {#if dataset?.pluginView}
+          <button class:active={activeTab === 'plugin-view'} class="tab" type="button" on:click={openPluginView} disabled={busy}
+            title={`${dataset.pluginView.name} 플러그인이 만든 결과 화면${dataset.pluginView.requiresTrust ? ' (외부 플러그인: 신뢰 확인 필요)' : ''}`}>
+            {dataset.pluginView.title}
+          </button>
+        {/if}
         <button
           class:active={activeTab === 'tutorial'}
           class="tab"
@@ -1380,6 +1532,76 @@
         <div class="grid-host ag-theme-quartz" class:concealed={activeTab !== 'data' || !dataset} bind:this={gridHost}></div>
         {#if activeTab === 'data' && !dataset}
           <div class="empty-state"><h2>파일 또는 공개 예제로 시작하세요</h2><p>Excel·TAME 파일을 불러와 검증, 탐색 분석, EP28 참고구간, 보고서 저장을 한 작업실에서 실행합니다.</p><button on:click={() => showExamples = true}>공개 예제 선택</button></div>
+        {:else if activeTab === 'plugins'}
+      <section class="panel-section">
+        {#key `${inputDatasetId}:${JSON.stringify(inputDataset?.pluginSelection)}`}
+          <PluginSelectionPanel dataset={inputDataset} {busy} on:apply={applyPluginSelection} />
+        {/key}
+        <h2>플러그인 실행</h2>
+        {#if pluginList.length}
+          <div class="field">
+            <label for="plugin-select">실행할 플러그인</label>
+            <select id="plugin-select" bind:value={selectedPlugin} on:change={() => pluginOptionsText = '{}'}>
+              {#each pluginList as plugin}
+                <option value={plugin.name}>{plugin.name}{plugin.supersededBy ? ' (구형)' : ''}{plugin.requiresTrust ? ' (신뢰 확인 필요)' : ''}{plugin.selected ? '' : ' (연결·별칭)'}</option>
+              {/each}
+            </select>
+          </div>
+          <div class="role-contract">
+            <strong>필요한 열 역할</strong>
+            <span>{selectedPluginRoleText(selectedPluginSpec)}</span>
+          </div>
+          {#if pluginFormState === 'loading'}
+            <p class="plugin-form-note" role="status">플러그인이 물어볼 항목을 확인하고 있습니다…</p>
+          {:else if pluginFormState === 'trust'}
+            <div class="plugin-form-note">
+              <span>외부 플러그인입니다. 입력 폼(플러그인이 선언한 질문)을 보려면 플러그인 코드를 불러와야 하므로 신뢰 확인이 먼저 필요합니다. 확인하지 않아도 아래 JSON 칸으로 설정을 줄 수 있습니다.</span>
+              <button type="button" on:click={trustAndLoadPluginForm} disabled={busy}>신뢰하고 입력 폼 불러오기</button>
+            </div>
+          {:else if pluginFormState === 'error'}
+            <p class="plugin-form-note error" role="alert">입력 폼을 불러오지 못했습니다: {pluginFormNote} 아래 JSON 칸으로 설정을 줄 수 있습니다.</p>
+          {/if}
+          {#if pluginForm}
+            <PluginForm form={pluginForm} bind:answers={pluginAnswers} errors={pluginShownErrors} disabled={busy} />
+            <details class="plugin-form-extra">
+              <summary>폼에 없는 추가 설정 (JSON)</summary>
+              <div class="field">
+                <label for="plugin-options">폼에 있는 항목은 폼의 값이 우선합니다.</label>
+                <textarea id="plugin-options" class="plugin-editor small" bind:value={pluginOptionsText} spellcheck="false"></textarea>
+              </div>
+            </details>
+          {:else}
+            <div class="field">
+              <label for="plugin-options">추가 설정 JSON</label>
+              <textarea id="plugin-options" class="plugin-editor small" bind:value={pluginOptionsText} spellcheck="false"></textarea>
+            </div>
+          {/if}
+          <button type="button" on:click={executePlugin} disabled={!inputDataset || busy || !selectedPlugin || pluginFormState === 'loading' || Boolean(roleProblem(selectedPluginSpec))} title={roleProblem(selectedPluginSpec)}>플러그인 실행</button>
+        {:else}
+          <div>사용 가능한 플러그인이 없습니다.</div>
+        {/if}
+        <details><summary>사용자 플러그인 작성</summary><p>입력한 Python 코드는 이 PC에서 실행됩니다.</p>
+        <div class="field">
+          <label for="plugin-name">이름</label>
+          <input id="plugin-name" bind:value={pluginName} />
+        </div>
+        <div class="field">
+          <label for="plugin-description">설명</label>
+          <input id="plugin-description" bind:value={pluginDescription} />
+        </div>
+        <div class="field">
+          <label for="plugin-source">Python</label>
+          <textarea id="plugin-source" class="plugin-editor" bind:value={pluginSource} spellcheck="false"></textarea>
+        </div>
+        <button type="button" on:click={createPlugin} disabled={!dataset || busy}>플러그인 생성</button></details>
+      </section>
+        {:else if activeTab === 'plugin-view'}
+          {#if pluginViewDoc && pluginViewDoc.datasetId === activeDatasetId}
+            <!-- The plugin's own document: scripts run inside the frame, but without allow-same-origin it cannot reach this page or read the API. -->
+            <iframe class="plugin-view-frame" title={pluginViewDoc.title} sandbox="allow-scripts" srcdoc={pluginViewDoc.html}></iframe>
+          {:else}
+            <div class="empty-state">이 자료에 열어 둔 플러그인 화면이 없습니다.</div>
+          {/if}
         {:else if activeTab === 'ri-settings'}
           <ReferencePanel dataset={inputDataset} {busy} on:run={event => executeReferenceInterval(event.detail)} />
         {:else if activeTab === 'sex-settings'}
@@ -1506,6 +1728,16 @@
           </div>
         {:else if activeTab === 'eda'}
           <div class="eda-pane">
+            {#if dataset?.resultType === 'workflow'}
+              <section class="ri-summary"><h2>플러그인 연결 결과</h2>
+                <p>각 단계는 표시된 입력에서 실행됩니다. 전처리 결과를 여러 분석에서 재사용하고, 파생 결과를 다음 플러그인에 전달합니다.</p>
+                <div class="report-actions">{#each dataset.reportFiles || [] as file}<button on:click={() => saveReport(file)} disabled={busy}>{file.label} 저장</button>{/each}</div>
+                <div class="table-wrap"><table><thead><tr><th>단계</th><th>입력 → 결과</th><th>사용 기능</th></tr></thead><tbody>
+                {#each dataset.workflow?.STEPS || [] as step}<tr><td>{step.name}</td><td>{step.source} → {step.name}</td><td>{step.kind === 'PLUGIN' ? '플러그인' : '기본 기능'} · {step.operation}</td></tr>{/each}
+                </tbody></table></div>
+                <p>아래 그래프와 상세 표를 검토하세요. 전체 결과 ZIP에는 단계별 TAME·CSV와 실행 설정이 포함됩니다.</p>
+              </section>
+            {/if}
             {#if dataset?.resultType === 'reference_interval'}
               <section class="ri-summary"><h2>EP28 참고구간 결과</h2><p>입력: {dataset.analysisSource} · {referenceRows.length.toLocaleString()}개 결과. 화면은 최대 소수 4자리로 표시하며 저장 파일은 계산 정밀도를 유지합니다.</p>
                 <p class="execution-settings">{settingsSummary(dataset.analysisSettings, referenceRows)}</p>
@@ -1556,6 +1788,10 @@
                             {formatChartNumber(tick)}
                           </text>
                         {/each}
+                        {#each chart.referenceLines || [] as line}
+                          <line x1={chartGeometry(chart).margin.left} x2={chartGeometry(chart).width-chartGeometry(chart).margin.right} y1={chartY(chart,line.VALUE)} y2={chartY(chart,line.VALUE)} stroke="#94a3b8" stroke-dasharray="5 4" />
+                          <text x={chartGeometry(chart).width-chartGeometry(chart).margin.right-4} y={chartY(chart,line.VALUE)-4} text-anchor="end" font-size="10">{line.LABEL || line.VALUE}</text>
+                        {/each}
                         {#if chart.type === 'interval'}
                           {#each chartRows(chart) as point}
                             {#if point.low !== null && point.high !== null}
@@ -1575,7 +1811,7 @@
                               d={linePath(chart, series)}
                               stroke={chartColor(series, seriesIndex)}
                             />
-                            {#each chartRows(chart).filter((row) => (row.series || '') === series) as point}
+                            {#each chartRows(chart).filter((row) => (row.series || '') === series && row.y != null && Number.isFinite(Number(row.y))) as point}
                               <circle
                                 cx={chartX(chart, point.x)}
                                 cy={chartY(chart, point.y)}
@@ -1603,7 +1839,7 @@
                         {/if}
                         {#each chartXTicks(chart) as tick}
                           <text class="chart-x-label" x={chartX(chart, tick)} y={chartGeometry(chart).height - 18}>
-                            {chart.type === 'interval' ? groupLabel(tick) : tick}
+                            {chart.type === 'interval' ? groupLabel(tick) : /^\d{4}-\d{2}-\d{2}T/.test(tick) ? tick.slice(5,10)+' '+tick.slice(11,16) : tick}
                           </text>
                         {/each}
                       </svg>
@@ -1846,44 +2082,7 @@
         <button on:click={openSexSettings} disabled={!inputDataset || busy}>출처별 성별 정규화</button>
       </section>
 
-      <section class="panel-section">
-        <h2>플러그인</h2>
-        {#if pluginList.length}
-          <div class="field">
-            <label for="plugin-select">플러그인 선택</label>
-            <select id="plugin-select" bind:value={selectedPlugin} on:change={() => pluginOptionsText = '{}'}>
-              {#each pluginList as plugin}
-                <option value={plugin.name}>{plugin.name}{plugin.name === 'REFERENCE_INTERVAL' ? ' (구형)' : ''}{plugin.requiresTrust ? ' (신뢰 확인 필요)' : ''}</option>
-              {/each}
-            </select>
-          </div>
-          <div class="role-contract">
-            <strong>필요한 열 역할</strong>
-            <span>{selectedPluginRoleText(selectedPluginSpec)}</span>
-          </div>
-          <div class="field">
-            <label for="plugin-options">추가 설정 JSON</label>
-            <textarea id="plugin-options" class="plugin-editor small" bind:value={pluginOptionsText} spellcheck="false"></textarea>
-          </div>
-          <button type="button" on:click={executePlugin} disabled={!inputDataset || busy || !selectedPlugin || Boolean(roleProblem(selectedPluginSpec))} title={roleProblem(selectedPluginSpec)}>플러그인 실행</button>
-        {:else}
-          <div>사용 가능한 플러그인이 없습니다.</div>
-        {/if}
-        <details><summary>사용자 플러그인 작성</summary><p>입력한 Python 코드는 이 PC에서 실행됩니다.</p>
-        <div class="field">
-          <label for="plugin-name">이름</label>
-          <input id="plugin-name" bind:value={pluginName} />
-        </div>
-        <div class="field">
-          <label for="plugin-description">설명</label>
-          <input id="plugin-description" bind:value={pluginDescription} />
-        </div>
-        <div class="field">
-          <label for="plugin-source">Python</label>
-          <textarea id="plugin-source" class="plugin-editor" bind:value={pluginSource} spellcheck="false"></textarea>
-        </div>
-        <button type="button" on:click={createPlugin} disabled={!dataset || busy}>플러그인 생성</button></details>
-      </section>
+
 
       <section class="panel-section">
         <h2>비식별화</h2>

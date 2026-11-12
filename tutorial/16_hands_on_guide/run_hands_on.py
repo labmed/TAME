@@ -15,10 +15,18 @@ HERE = ROOT / "tutorial" / "16_hands_on_guide"
 OUT = HERE / "outputs"
 
 
+# The tametools of the Python that runs this script, so the examples exercise the source they belong to and not
+# whichever tametools happens to be first on PATH. Set TAMETOOLS_CLI to run an installed command instead.
+TAMETOOLS = [os.environ["TAMETOOLS_CLI"].strip()] if os.environ.get("TAMETOOLS_CLI", "").strip() else [sys.executable, "-m", "tametools"]
+
+
 def command(*args: str) -> list[str]:
-    if shutil.which("tametools"):
-        return ["tametools", *args]
-    return [sys.executable, "-m", "tametools", *args]
+    return [*TAMETOOLS, *args]
+
+
+def shown(args: list[str]) -> str:
+    """The command as a reader would type it."""
+    return " ".join(["tametools", *args[len(TAMETOOLS):]] if args[:len(TAMETOOLS)] == TAMETOOLS else args)
 
 
 STEPS: list[tuple[str, list[str]]] = [
@@ -110,7 +118,7 @@ STEPS: list[tuple[str, list[str]]] = [
         ),
     ),
     (
-        "13. QC 정밀도와 chart contract 출력",
+        "13. 환자 결과의 기술적 변동 요약과 그래프 (관리물질 QC 정밀도 아님)",
         command("run-plugin", str(OUT / "02_cleaned.tame"), "QC_ANALYSIS", "--option", "MODE=PRECISION", "--output", str(OUT / "07_qc_precision.tame")),
     ),
     (
@@ -127,6 +135,7 @@ STEPS: list[tuple[str, list[str]]] = [
             "run-plugin",
             str(OUT / "02_cleaned.tame"),
             "COMBINED_CHEMISTRY_REPORT",
+            "--allow-plugins",
             "--option",
             f"REPORT_PATH={OUT / '10_combined_report.docx'}",
         ),
@@ -164,12 +173,14 @@ def run_step(title: str, args: list[str], env: dict[str, str]) -> str:
         cwd=ROOT,
         env=env,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=False,
     )
     status = "PASS" if completed.returncode == 0 else f"FAIL returncode={completed.returncode}"
-    command_text = " ".join(args)
+    command_text = shown(args)
     return f"## {title}\n\n```bash\n$ {command_text}\n{status}\n{completed.stdout.strip()}\n```\n"
 
 
@@ -195,7 +206,8 @@ def check_report_docx() -> str:
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
-    env["PYTHONPATH"] = f"{ROOT / 'tametools' / 'src'}:{ROOT}"
+    env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "tametools" / "src"), str(ROOT), env.get("PYTHONPATH", "")])
+    env["PYTHONIOENCODING"] = "utf-8"      # the output of each step is captured and read as UTF-8
 
     sections = ["# Hands-on execution log\n"]
     for title, args in STEPS:

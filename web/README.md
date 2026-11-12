@@ -87,6 +87,8 @@ python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 - 상태 확인, 검증, 표준화, 저장, 태그를 META/헤더로 이동 실행
 - ACTION, ACTION_PIPELINES, ANALYSES, WEB_PLUGINS를 읽어 실행 버튼 자동 생성
 - 플러그인 선택 시 RESULT role contract와 다중 RESULT 처리 방식 표시
+- 플러그인이 질문을 선언했으면(`register_plugin(..., form=...)`) JSON 칸 대신 입력 폼 표시. 답은 서버에서 검증되어 옵션으로 실행 이력에 남음 (`docs/PLUGIN_AUTHOR_GUIDE.md` 11절)
+- 플러그인이 결과 화면을 등록했으면(`register_view`) 그 결과를 볼 때 화면 제목의 탭 단추 표시(예: `WESTGARD_QC` 결과의 "QC 보고서"). 화면은 플러그인이 만든 HTML 문서이며, 작업실 페이지와 분리된 프레임(`sandbox="allow-scripts"`, 외부 요청 차단) 안에 표시
 - 태그 기반 EDA 실행
 - `ID`, `ID(patient)`, `ID(hospital)`, `PATIENT_ID`, `HOSPITAL_ID`, `NAME` 태그 기반 익명화
 - 새 데이터를 만드는 작업은 원본을 덮어쓰지 않고 좌측 `작업 이력`에 새 `.tame` 노드로 추가

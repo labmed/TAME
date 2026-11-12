@@ -180,17 +180,17 @@ class NhanesDownloadTests(unittest.TestCase):
             self.download(tmp)
             env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(Path(__file__).resolve().parents[1]/"src"), os.environ.get("PYTHONPATH", "")]))
             command = [sys.executable, "-m", "tametools", "download", "nhanes", "--cycle", "2017-2018", "--files", "DEMO_J", "--output-dir", tmp, "--offline"]
-            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            result = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("verified_cache", result.stdout)
-            result = subprocess.run([sys.executable, "-m", "tametools", "analyze", "--help"], env=env, capture_output=True, text=True)
+            result = subprocess.run([sys.executable, "-m", "tametools", "analyze", "--help"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("ANALYSIS_PLAN", result.stdout)
-            result = subprocess.run([sys.executable, "-m", "tametools", "clinical", "--help"], env=env, capture_output=True, text=True)
+            result = subprocess.run([sys.executable, "-m", "tametools", "clinical", "--help"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertNotEqual(result.returncode, 0)
             for arguments, message in [(["CLINICAL_STATS", "--plan", "plan.toml"], "Do not combine"),
                                        (["--option", "MODE=anything"], "require a named PLUGIN")]:
-                result = subprocess.run([sys.executable, "-m", "tametools", "analyze", "not_loaded.tame", *arguments], env=env, capture_output=True, text=True)
+                result = subprocess.run([sys.executable, "-m", "tametools", "analyze", "not_loaded.tame", *arguments], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(message, result.stderr)
 

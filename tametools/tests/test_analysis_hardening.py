@@ -1,5 +1,6 @@
 """Synthetic software counterexamples, never clinical performance evidence."""
 from copy import deepcopy
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -19,6 +20,8 @@ from tametools.plugin_base import run_plugin
 from tametools.plugin_base.roles import result_binding
 from tametools.reference_flags import reference_flags
 from tametools.units import unit_factor, convert_cell
+
+needs_pint = unittest.skipUnless(importlib.util.find_spec("pint"), "optional Pint dependency is not installed")
 
 
 def dataset(data, results=("y",)):
@@ -150,6 +153,7 @@ class HardeningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "contradicts"):
             integrate_datasets([ds], profile())
 
+    @needs_pint
     def test_reviewed_integration_tags_survive_validation(self):
         from test_integration import source, profile
         p = profile()
@@ -158,6 +162,7 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(len(ds.columns_with_tag("PANEL(renal)")), 1)
         self.assertFalse(validate_dataset(ds).issues)
 
+    @needs_pint
     def test_units_require_charge_and_reviewed_affine_bridge(self):
         from test_integration import source, profile
         for unit in ("mEq/L", "%", "mmol/mol"):
@@ -317,6 +322,7 @@ class HardeningTests(unittest.TestCase):
         pd.testing.assert_frame_equal(forward, backward)
         self.assertEqual(forward.violation.tolist(), ["NONE", "2_2s"])
 
+    @needs_pint
     def test_affine_hba1c_profile_and_original_unit_spelling(self):
         from test_integration import source, profile
         ds, p = source(unit="percent", values=["5", "6"]), profile("mmol/mol")
@@ -332,6 +338,7 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(result.table.iloc[0].offset, "-23.5")
         self.assertFalse(validate_dataset(result.dataset).issues)
 
+    @needs_pint
     def test_interval_and_status_survive_integration(self):
         from test_integration import context
         ds = interval_data()
@@ -348,6 +355,7 @@ class HardeningTests(unittest.TestCase):
         self.assertEqual(mask.sum(), 3)
         self.assertFalse(validate_dataset(result).issues)
 
+    @needs_pint
     def test_legacy_integration_output_still_validates(self):
         from test_integration import source, profile
         from tametools.integration import PREFIX, LEGACY_SUFFIXES

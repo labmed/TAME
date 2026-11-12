@@ -47,7 +47,11 @@ report_datas = (collect_data_files("matplotlib") + collect_data_files("docx")
 tametools_hidden = collect_submodules("tametools") + collect_submodules("pyreadstat") + [
     "scipy.stats", "scipy.stats._stats_py", "statsmodels.api", "sklearn.metrics",
     "samplics", "pint", "pyreadstat", "pyarrow", "fastapi", "uvicorn",
+    # tametools.dialogs 가 창(대화상자)을 띄울 때 쓴다. 함수 안에서 늦게 import 하므로 명시해서 Tcl/Tk 가 빠지지 않게 한다.
+    "tkinter", "tkinter.ttk", "tkinter.filedialog",
 ]
+# Tcl/Tk 가 빠지면 창을 띄울 수 없다. 빠진 환경에서는 빌드가 여기서 멈춘다.
+__import__("tkinter")
 
 
 a_cli = Analysis(

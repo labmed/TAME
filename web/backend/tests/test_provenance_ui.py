@@ -24,7 +24,7 @@ class ProvenanceUiTests(unittest.TestCase):
         events=[e for g in source['provenance']['groups'] for e in g['events']]
         self.assertEqual([e['OPERATION'] for e in events].count('IMPORT_XLSX'),2)
         self.assertIn('MERGE',[e['OPERATION'] for e in events])
-        mapping=json.loads((path.parent/'sex_coding_mapping.json').read_text())
+        mapping=json.loads((path.parent/'sex_coding_mapping.json').read_text(encoding='utf-8'))
         response=self.client.post('/api/datasets/apply-fix',json={'dataset':source,'options':{'action':'normalize-sex-by-source','sexNormalization':mapping}})
         self.assertEqual(response.status_code,200,response.text[:600])
         fixed=response.json()

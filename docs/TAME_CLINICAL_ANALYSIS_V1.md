@@ -5,7 +5,7 @@ Historical contract name. For current commands and new files, use
 `ANALYZE`. The previous `clinical` CLI is no longer exposed. This document remains
 as a reference for older archived inputs, not as the current command guide.
 
-Optional local extension, 2026-09-11. The TSV/TOML container and existing analysis,
+An optional extension. The TSV/TOML container and existing analysis,
 survey and integration contracts remain unchanged. This contract declares routine
 chemistry exploration, not a new statistical estimator or clinical decision rule.
 

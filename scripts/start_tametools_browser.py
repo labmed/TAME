@@ -110,7 +110,7 @@ def prepare_environment(runtime, repair=False):
         run([python,'-m','pip','install','--only-binary=:all:','-r',ROOT/'packaging/browser/requirements.txt'])
         run([python,'-m','pip','install','--no-deps','--no-build-isolation',ROOT/'tametools'])
         run([python,'-m','pip','check'])
-        run([python,'-c','import fastapi, uvicorn, pyreadstat, samplics, scipy, tametools; assert tametools.__version__ == "0.4.0"'])
+        run([python,'-c','import fastapi, uvicorn, pyreadstat, samplics, scipy, tametools; assert tametools.__version__ == "0.5.0"'])
         state_file.write_text(json.dumps(dict(fingerprint=expected,python_base=sys.base_prefix,
             python_version=platform.python_version(),platform=platform.platform()),indent=2),encoding='utf-8')
         say('분석 환경 설치를 완료했습니다.')

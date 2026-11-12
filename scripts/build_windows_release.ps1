@@ -57,6 +57,13 @@ if ($Target -in @('All', 'Exe')) {
     $Plugins = Join-Path $AppDir 'plugins'
     New-Item -ItemType Directory -Force $Plugins | Out-Null
     Copy-Item (Join-Path $Project 'src\tametools\plugins\*.py') $Plugins -Force
+    # 패키지형 플러그인(__init__.py 가 있는 폴더, 예: westgard_qc\)도 실행파일 옆 plugins\ 에 둔다.
+    Get-ChildItem (Join-Path $Project 'src\tametools\plugins') -Directory |
+        Where-Object { Test-Path (Join-Path $_.FullName '__init__.py') } |
+        ForEach-Object {
+            Copy-Item $_.FullName $Plugins -Recurse -Force
+            Get-ChildItem (Join-Path $Plugins $_.Name) -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
+        }
     Copy-Item (Join-Path $Root 'packaging\windows\plugins\*') $Plugins -Recurse -Force
     Run $BuildPython @((Join-Path $Root 'scripts\stage_windows_audit_files.py'), $AppDir)
     Run (Join-Path $AppDir 'tametools.exe') @('--version')

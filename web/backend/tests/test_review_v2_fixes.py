@@ -10,6 +10,7 @@ import zipfile
 
 import pandas as pd
 from fastapi.testclient import TestClient
+from tametools import __version__
 from tametools.io import read_tame
 from tametools.reporting import chart_spec, with_visualizations
 from tametools.models import ColumnSpec, TameDataset
@@ -63,7 +64,7 @@ class ReviewV2Tests(unittest.TestCase):
                     self.assertEqual(client.get(info['pageUrl'],params={'offset':-1}).status_code,400)
                     self.assertEqual(client.get(info['pageUrl'],params={'limit':10000}).status_code,400)
                 manifest=json.loads(z.read('manifest.json'))
-                self.assertEqual(manifest['versions']['tametools'],'0.4.0')
+                self.assertEqual(manifest['versions']['tametools'],__version__)
                 self.assertEqual({i['path'] for i in manifest['files']},set(z.namelist())-{'manifest.json'})
                 for item in manifest['files']:self.assertEqual(item['sha256'],sha256(z.read(item['path'])).hexdigest())
             self.assertEqual(client.get('/api/analysis-tables/invalid/input_audit').status_code,404)

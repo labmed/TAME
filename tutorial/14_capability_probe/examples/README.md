@@ -60,7 +60,7 @@ tametools run-action tutorial/14_capability_probe/clinical_chem.tame P01_DEDUP \
 | P09 | 키 기반 조인(인구통계) | `JOIN` | `ID(patient)` |
 | P10 | 연속형 구간 범주화(연령군) | `BIN` | `AGE(baseline)` → `AGE_GROUP` |
 
-대표 전처리 흐름은 `ACTION_PIPELINES.CLEAN`로 묶어 두었다.
+대표 전처리 흐름은 `ACTION_PIPELINES.CLEAN`에 묶여 있다.
 `AGE`는 CSS class처럼 넓은 의미의 연령 컬럼을 모두 가리킨다. 원본 등록 연령은
 `AGE(baseline)`, 채취일시 기준 파생 연령은 `AGE(visit)`로 한정자를 붙인다.
 따라서 단일 컬럼이 필요한 `P10`은 `COLUMN = "tag:AGE(baseline)"`을 사용하고,

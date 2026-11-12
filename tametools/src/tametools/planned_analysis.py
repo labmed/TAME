@@ -519,7 +519,7 @@ def write_analysis_report(output, directory, *, docx=False):
         table_rows={name: len(table) for name, table in output.tables.items()},
         files={path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files})
     path = directory / "manifest.json"
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n")
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
     return [str(path) for path in [*files, path]]
 
 

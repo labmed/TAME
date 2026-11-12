@@ -32,6 +32,27 @@ def resolve_id(dataset: TameDataset, identifier: str) -> ColumnSpec:
     return columns[identifier]
 
 
+def resolve_selector(dataset: TameDataset, selector: str) -> ColumnSpec | None:
+    """The column an option names: a column name, ``id:COLUMN_ID`` or ``tag:TAG`` (exactly one column must carry the tag).
+
+    An empty selector is None, so the caller can fall back to tags; a selector that names nothing is an error.
+    """
+    text = str(selector or "").strip()
+    if not text:
+        return None
+    if text.lower().startswith("tag:"):
+        columns = dataset.columns_with_tag(text.split(":", 1)[1])
+        if len(columns) != 1:
+            raise ValueError(f"Unknown or ambiguous column selector: {text}")
+        return columns[0]
+    if text.lower().startswith("id:"):
+        return resolve_id(dataset, text[3:])
+    for column in dataset.columns:
+        if column.name == text:
+            return column
+    raise ValueError(f"Unknown column selector: {text}")
+
+
 def check_contract_version(dataset: TameDataset) -> None:
     section = ci_get(dataset.meta, "ANALYSIS_CONTRACT", {})
     declared = ci_get(section, "VERSION", None) if isinstance(section, dict) else None

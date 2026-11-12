@@ -1,4 +1,7 @@
 """Run-aware basic QC rules against an externally declared, dated baseline."""
+import hashlib
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -18,13 +21,20 @@ def evaluate_qc(dataset, results, options):
         bindings[field] = resolve_id(dataset, identifier).name
     work = key_frame(dataset, [ci_get(options, key) for key in bindings]).rename(columns={value: key for key, value in bindings.items()})
     work["TIME_ID"] = timestamp_series(dataset.df[bindings["TIME_ID"]])
-    keys = ["INSTRUMENT_ID", "LOT_ID", "RUN_ID"]
-    if work.duplicated(keys + ["LEVEL_ID"]).any():
+    # A run is what one instrument measured together. The control lot is not part of it: each level
+    # usually has a lot number of its own, and within-run rules compare the levels with each other.
+    keys = ["INSTRUMENT_ID", "RUN_ID"]
+    if work.duplicated(keys + ["LOT_ID", "LEVEL_ID"]).any():
         raise ValueError("Duplicate QC run/level; define separate runs or resolve replicates explicitly")
     if work.duplicated(["INSTRUMENT_ID", "LOT_ID", "LEVEL_ID", "TIME_ID"]).any():
         raise ValueError("Ambiguous QC run ordering: repeated level timestamps")
-    if work.groupby(keys).TIME_ID.nunique().gt(1).any():
-        raise ValueError("All levels in a run must share the declared run timestamp")
+    moments = work.groupby(keys, sort=False).TIME_ID.agg(lambda values: sorted(set(values)))
+    for (instrument, run), times in moments.items():
+        if len(times) > 1:
+            raise ValueError(
+                "All levels in a run must share the declared run timestamp: run " + repr(str(run)) + " on " + str(instrument)
+                + " has " + ", ".join(moment.isoformat() for moment in times[:3]) + (", ..." if len(times) > 3 else "")
+                + ". If run numbers start again every day, use a run identifier that includes the date.")
     baselines = ci_get(options, "BASELINES", None)
     if not isinstance(baselines, list) or not baselines:
         raise ValueError("WESTGARD requires reviewed BASELINES; use LEVEY_JENNINGS for retrospective exploration")
@@ -89,10 +99,60 @@ def evaluate_qc(dataset, results, options):
                 previous = row.z
         for index, row in data.iterrows():
             baseline = prepared[int(row.baseline_index)][0]
-            rows.append(dict(source_result_column=result.name, run=row.RUN_ID, time=row.TIME_ID.isoformat(),
+            baseline_key = hashlib.sha256(json.dumps(baseline, sort_keys=True).encode()).hexdigest()[:12]
+            series = " / ".join([identifier, row.LEVEL_ID, row.LOT_ID, row.INSTRUMENT_ID, baseline["VALID_FROM"][:10]])
+            rows.append(dict(source_result_column=result.name, result_id=identifier, baseline_key=baseline_key, series=series,
+                run=row.RUN_ID, time=row.TIME_ID.isoformat(),
                 level=row.LEVEL_ID, lot=row.LOT_ID, instrument=row.INSTRUMENT_ID, value=row.value,
                 unit=unit, mean=baseline["MEAN"], sd=baseline["SD"], z=row.z,
                 baseline_reference=baseline["REFERENCE"], baseline_valid_from=baseline["VALID_FROM"],
                 baseline_valid_to=baseline["VALID_TO"], status="evaluated" if np.isfinite(row.z) else "not_evaluated",
                 violation=", ".join(sorted(set(flags[index]))) or ("NONE" if np.isfinite(row.z) else "NE")))
     return pd.DataFrame(rows)
+
+
+def qc_context(dataset, result, options):
+    """Bind QC grouping keys before any summary; never pool declared contexts."""
+    def column(field, tags, legacy=""):
+        value = ci_get(options, field, None)
+        if value is not None:
+            return resolve_id(dataset, str(value)).name
+        selector = ci_get(options, legacy, None) if legacy else None
+        if selector:
+            if str(selector).startswith('id:'):
+                return resolve_id(dataset, str(selector)[3:]).name
+            if str(selector).startswith('tag:'):
+                found = dataset.columns_with_tag(str(selector)[4:])
+            else:
+                found = [c for c in dataset.columns if c.name == selector]
+            if len(found) != 1:
+                raise ValueError("Unknown or ambiguous QC selector: " + str(selector))
+            return found[0].name
+        for tag in tags:
+            found = dataset.columns_with_tag(tag)
+            if len(found) > 1:
+                raise ValueError("Declare " + field + ": ambiguous QC context")
+            if found:
+                return found[0].name
+        expected = field.removesuffix('_ID').lower()
+        found = [c for c in dataset.columns if ci_get(dataset.column_metadata(c), 'ID', '') == expected]
+        return found[0].name if len(found) == 1 else None
+    bindings = {
+        'test': column('ITEM_ID', ('ITEM', 'TESTNAME')),
+        'level': column('LEVEL_ID', ('QC_LEVEL',), 'LEVEL'),
+        'lot': column('LOT_ID', ('LOT', 'REAGENT_LOT')),
+        'instrument': column('INSTRUMENT_ID', ('INSTRUMENT',)),
+    }
+    identity = ci_get(dataset.column_metadata(result), 'ID', result.name)
+    frame = pd.DataFrame(index=dataset.df.index)
+    for key, name in bindings.items():
+        frame[key] = dataset.df[name].astype(str) if name else (identity if key == 'test' else '')
+    if bindings['level'] is None:
+        frame['level'] = frame['test']
+    for key, name in bindings.items():
+        if name:
+            from .cellstate import cell_state, STATE_VALUE
+            if not dataset.df[name].map(lambda v: cell_state(v) == STATE_VALUE).all():
+                raise ValueError("Missing QC grouping value: " + key)
+    frame['result_id'] = identity
+    return frame, bindings

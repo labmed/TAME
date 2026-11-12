@@ -7,8 +7,11 @@
 - `sample_reference_interval.tame`
 - `sample_reference_interval_missing_tags.tame`
 - `sample_report_plugin.tame`
+- `sample_dialog_plugin.tame`
 - `../plugin_examples/example_count_plugin.py`
 - `../plugin_examples/combined_report_plugin.py`
+- `../plugin_examples/dialog_form_plugin.py`
+- `../plugin_examples/markdown_export_plugin.py`
 
 ## 참고치 플러그인
 
@@ -98,6 +101,37 @@ PYTHONPATH=. tametools run-plugin \
 `PYTHONPATH=.`로 저장소 루트를 import 경로에 넣어야 한다(없으면 `No module named 'tutorial'`).
 직접 만든 플러그인을 import 경로(site-packages 등)에 두면 `PYTHONPATH` 없이 `tametools`만으로 실행된다.
 
+## 질문을 선언하는 플러그인 예제 (대화상자)
+
+`tutorial/plugin_examples/dialog_form_plugin.py`는 빠진 설정을 창으로 묻는 플러그인 예제다.
+플러그인은 창을 직접 만들지 않고 `register_plugin(..., form=...)`으로 질문만 선언한다.
+
+```bash
+PYTHONPATH=. tametools run-plugin \
+  tutorial/05_plugins/sample_dialog_plugin.tame \
+  COUNT_BY_COLUMN \
+  --allow-plugins
+```
+
+- 터미널에서 실행하면 필수 설정(`GROUP`, 묶을 열)이 빠져 있으므로 창이 뜬다. 답한 내용은 `answered:`로 출력되고,
+  같은 실행을 창 없이 반복하는 `--option` 명령도 함께 나온다.
+- `--option GROUP=성별`처럼 다 지정하면 묻지 않는다. `--dialog`를 붙이면 지금 값을 채운 창이 뜬다.
+- 스케줄러나 파이프처럼 사람이 없는 실행에서는 묻지 않고, 지정해야 할 옵션 이름을 알려 주며 멈춘다.
+
+세부 계약은 `docs/PLUGIN_AUTHOR_GUIDE.md` 11절을 참고한다.
+
+## 내보내기 형식을 더하는 플러그인 예제
+
+`tutorial/plugin_examples/markdown_export_plugin.py`는 분석이 아니라 내보내기 형식(Markdown 표)을 더하는 예제다.
+`register_exporter`로 쓰는 함수 하나를 등록하면 `tametools export`가 그 형식을 알게 된다.
+
+```bash
+TAMETOOLS_PLUGIN_PATH=tutorial/plugin_examples tametools export   tutorial/05_plugins/sample_dialog_plugin.tame table.md --allow-plugins
+```
+
+확장자 `.md`로 형식을 추론한다. 다른 확장자로 쓰려면 `--format markdown`을 준다. `tametools plugins --allow-plugins`의
+끝줄 `plugin export formats:`에서 더해진 형식을 볼 수 있다.
+
 ## 차트 포함 보고서 플러그인 예제
 
 `tutorial/plugin_examples/combined_report_plugin.py`는 아래 패턴을 한 번에 보여준다.
@@ -119,7 +153,6 @@ tametools run-plugin \
 ```
 
 정상 실행 시 CLI에 `[charts]`, `[files]`가 표시되고 `/tmp/combined_chemistry_report.docx`가 생성된다.
-재제출용 샘플 산출물은 `tutorial/05_plugins/combined_chemistry_report.docx`에도 생성해 두었다.
 
 플러그인 작성 세부 계약은 `docs/PLUGIN_AUTHOR_GUIDE.md`를 참고한다.
 

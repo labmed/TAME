@@ -376,14 +376,14 @@ class IntegrationTests(unittest.TestCase):
             (root / "profile.toml").write_text(dumps(profile()))
             env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(Path(__file__).resolve().parents[1] / "src"), os.environ.get("PYTHONPATH", "")]))
             command = [sys.executable, "-m", "tametools", "integrate", str(root / "a.tame"), "--profile", str(root / "profile.toml"), "--output", str(root / "out.tame")]
-            preview = subprocess.run(command + ["--preview"], env=env, capture_output=True, text=True)
+            preview = subprocess.run(command + ["--preview"], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(preview.returncode, 0, preview.stderr + preview.stdout)
             self.assertFalse((root / "out.tame").exists())
-            saved = subprocess.run(command, env=env, capture_output=True, text=True)
+            saved = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
             self.assertEqual(saved.returncode, 0, saved.stderr + saved.stdout)
             self.assertFalse(validate_dataset(read_tame(root / "out.tame")).issues)
             for output in ["out.data.tame", "out.meta.tame", "out.csv"]:
-                rejected = subprocess.run(command[:-1] + [str(root / output)], env=env, capture_output=True, text=True)
+                rejected = subprocess.run(command[:-1] + [str(root / output)], env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
                 self.assertNotEqual(rejected.returncode, 0)
                 self.assertFalse((root / output).exists())
 
